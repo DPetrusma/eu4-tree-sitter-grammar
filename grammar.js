@@ -1,2942 +1,3363 @@
-/**
- * @file Grammer for the DSL for writing mods for Europa Universalis IV
- * @author Malte Lau Petersen <maltelau@mlpetersen.dk>
- * @license MIT
- */
-
-/// <reference types="tree-sitter-cli/dsl" />
-// @ts-check
-
-const {
-  /* import from different file */
-  LOGIC,
-  GENERIC_SCOPES,
-  SPECIAL_FLAG_SCOPES,
-
-  COUNTRY_EFFECT_SCOPE,
-  PROVINCE_EFFECT_SCOPE,
-  COUNTRY_TO_PROVINCE_EFFECT_SCOPE,
-  PROVINCE_TO_COUNTRY_EFFECT_SCOPE,
-  COUNTRY_TO_COUNTRY_EFFECT_SCOPE,
-  PROVINCE_TO_PROVINCE_EFFECT_SCOPE,
-
-  COUNTRY_TRIGGER_SCOPE,
-  PROVINCE_TRIGGER_SCOPE,
-  COUNTRY_TO_PROVINCE_TRIGGER_SCOPE,
-  PROVINCE_TO_COUNTRY_TRIGGER_SCOPE,
-  COUNTRY_TO_COUNTRY_TRIGGER_SCOPE,
-  PROVINCE_TO_PROVINCE_TRIGGER_SCOPE,
-
-  UNIT_TRIGGER_STATEMENTS_NUM,
-  UNIT_TRIGGER_STATEMENTS_BOOL,
-  UNIT_TRIGGER_STATEMENTS_STR,
-
-  COUNTRY_EFFECT_STATEMENTS_NUM,
-  COUNTRY_EFFECT_STATEMENTS_BOOL,
-  COUNTRY_EFFECT_STATEMENTS_IDENT,
-  COUNTRY_EFFECT_STATEMENTS_STR,
-  COUNTRY_EFFECT_STATEMENTS_PROV,
-  COUNTRY_EFFECT_STATEMENTS_TAG,
-  COUNTRY_EFFECT_STATEMENTS_VARIABLE,
-
-  COUNTRY_TRIGGER_STATEMENTS_NUM,
-  COUNTRY_TRIGGER_STATEMENTS_BOOL,
-  COUNTRY_TRIGGER_STATEMENTS_IDENT,
-  COUNTRY_TRIGGER_STATEMENTS_STR,
-  COUNTRY_TRIGGER_STATEMENTS_TAG,
-  COUNTRY_TRIGGER_STATEMENTS_PROV,
-
-  PROVINCE_EFFECT_STATEMENTS_NUM,
-  PROVINCE_EFFECT_STATEMENTS_BOOL,
-  PROVINCE_EFFECT_STATEMENTS_IDENT,
-  PROVINCE_EFFECT_STATEMENTS_STR,
-  PROVINCE_EFFECT_STATEMENTS_TAG,
-  PROVINCE_EFFECT_STATEMENTS_PROV,
-  PROVINCE_EFFECT_STATEMENTS_VARIABLE,
-
-  PROVINCE_TRIGGER_STATEMENTS_NUM,
-  PROVINCE_TRIGGER_STATEMENTS_BOOL,
-  PROVINCE_TRIGGER_STATEMENTS_IDENT,
-  PROVINCE_TRIGGER_STATEMENTS_STR,
-  PROVINCE_TRIGGER_STATEMENTS_TAG,
-  PROVINCE_TRIGGER_STATEMENTS_PROV,
-
-  ON_ACTION_COUNTRY,
-  ON_ACTION_PROVINCE,
-  ON_ACTION_UNIT,
-
-  EXPORTABLE_VALUE_COUNTRY,
-  EXPORTABLE_VALUE_PROVINCE,
-
-  MODIFIER_GLOBAL_NUM,
-  MODIFIER_GLOBAL_BOOL,
-  MODIFIER_LOCAL_NUM,
-  MODIFIER_LOCAL_BOOL,
-} = require("./imports/vanilla_statements.js");
-
-const grammar_gui = require("./imports/grammar_gui.js");
-
-// const { precompiled_imports } = require("./imports/scripted_effect_parsed.js");
-
-/* ####### Grammar begins ######### */
-rules = {
-  source_file: ($) =>
-    choice(
-      $.events_file,
-      $.on_actions_file,
-      $.scripted_effects_file,
-      $.decisions_file,
-      $.missions_file,
-      $.modifiers_file,
-      $.church_aspects_file,
-      $.estate_privileges_file,
-      $.dot_mod_file,
-      $.dot_gfx_file,
-      $.dot_gui_file,
-      $.dot_yml_file,
-      $.custom_gui_file,
-    ),
-
-  // TODO: better number parsing
-  number: ($) => choice($.number_negative, $.number_positive),
-  number_negative: ($) => /\-(0|([1-9][0-9]*))(\.[0-9]+)?/,
-  number_positive: ($) => /(0|([1-9][0-9]*))(\.[0-9]+)?/,
-  int_nonnull: ($) => /[1-9][0-9]*/,
-  integer: ($) => token(seq(optional("-"), /\d+/)),
-  operator: ($) => prec(-1, /\+|-/),
-
-  /* Generic */
-  eq: ($) => "=",
-  string: ($) => /"[^"]*"/,
-  bool: ($) => prec(1, /(yes)|(no)/),
-  comment: ($) => /#.*/,
-
-  _bool_truefalse: ($) => alias(choice("true", "false"), $.bool),
-  _bool_0_1: ($) => alias(choice("0", "1"), $.bool),
-
-  tag: ($) => prec(1, /([A-Z][0-9]{1,3})|(REB)|(NAT)|(---)|(SS[0-9])/),
-  province: ($) => prec(1, $.int_nonnull),
-  area: ($) => prec(1, /[a-z][a-z0-9_]*_area/),
-  region: ($) => prec(1, /[a-z][a-z\_]*_(super)?region/), // TODO: split into superregion and continent etc
-  province_group: ($) => /[a-z][a-z_]*_((group)|(provinces))/, // TODO:_ had prec(1) but this breaks scripted things that end in _group
-
-  /* Keywords */
-  if_ident: ($) => /if|If/, // TODO: case sensitive?
-  limit_ident: ($) => "limit",
-  else_if_ident: ($) => "else_if",
-  else_ident: ($) => "else",
-  estate_influence_ident: ($) => "estate_influence",
-  custom_trigger_tooltip_ident: ($) => "custom_trigger_tooltip",
-  id_ident: ($) => "id",
-  title_ident: ($) => "title",
-  desc_ident: ($) => "desc",
-  picture_ident: ($) => "picture",
-  major_trigger_ident: ($) => "major_trigger",
-  trigger_ident: ($) => "trigger",
-  immediate_ident: ($) => "immediate",
-  after_ident: ($) => "after",
-  option_ident: ($) => "option",
-  add_opinion_ident: ($) => "add_opinion",
-  modifier_ident: ($) => "modifier",
-  multiplier_ident: ($) => "multiplier",
-  years_ident: ($) => "years",
-  tooltip_ident: ($) => "tooltip",
-  country_event_ident: ($) => "country_event",
-  hidden_effect_ident: ($) => "hidden_effect",
-  hidden_trigger_ident: ($) => "hidden_trigger",
-  add_country_modifier_ident: ($) =>
-    choice("add_country_modifier", "add_permanent_country_modifier"),
-  name_ident: ($) => "name",
-  duration_ident: ($) => "duration",
-  kill_units_ident: ($) => "kill_units",
-  who_ident: ($) => "who",
-  type_ident: ($) => "type",
-  amount_ident: ($) => "amount",
-  add_province_modifier_ident: ($) =>
-    choice("add_province_modifier", "add_permanent_province_modifier"),
-  province_event_ident: ($) => "province_event",
-  random_ident: ($) => "random",
-  days_ident: ($) => "days",
-  has_great_project_ident: ($) => "has_great_project",
-  events_ident: ($) => "events",
-  random_events_ident: ($) => "random_events",
-  hidden_ident: ($) => "hidden",
-  change_country_color_ident: ($) => "change_country_color",
-  color_ident: ($) => "color",
-  country_ident: ($) => "country",
-  any_ident: ($) => /(any)|(ANY)/,
-  all_ident: ($) => /(all)|(ALL)/,
-  chance_ident: ($) => "chance",
-  random_list_ident: ($) => "random_list",
-  tier_ident: ($) => "tier",
-  trigger_switch_ident: ($) => "trigger_switch",
-  on_trigger_ident: ($) => "on_trigger",
-  factor_ident: ($) => "factor",
-  ai_importance_ident: ($) => "ai_importance",
-  ai_will_do_ident: ($) => "ai_will_do",
-  calc_true_if_ident: ($) => "calc_true_if",
-  exclude_from_progress_ident: ($) => "exclude_from_progress",
-  event_target_full_ident: ($) => /event_target:[a-zA-Z0-9][a-zA-Z0-9._]*/,
-  trigger_value_full_ident: ($) => /trigger_value:[a-zA-Z0-9][a-zA-Z0-9._]*/,
-  modifier_value_full_ident: ($) => /modifier:[a-zA-Z0-9][a-zA-Z0-9._]*/,
-  variable_full_ident: ($) => /variable:[a-zA-Z0-9][a-zA-Z0-9._]*/,
-  num_of_provinces_owned_ident: ($) =>
-    prec(
-      1,
-      /(num_of_owned_provinces_with)|(num_of_provinces_owned_or_owned_by_non_sovereign_subjects_with)|(num_of_provinces_owned_or_owned_by_subjects_with)/,
-    ),
-  value_ident: ($) => "value",
-  cost_ident: ($) => "cost",
-  sprite_ident: ($) => "sprite",
-  conditional_modifier_ident: ($) => "conditional_modifier",
-  influence_scaled_conditional_modifier_ident: ($) =>
-    "influence_scaled_conditional_modifier",
-  on_granted_province_ident: ($) => "on_granted_province",
-  on_revoked_province_ident: ($) => "on_revoked_province",
-  on_invalid_province_ident: ($) => "on_invalid_province",
-  is_bad_ident: ($) => "is_bad",
-  mechanics_ident: ($) => "mechanics",
-  land_share_ident: ($) => "land_share",
-  influence_ident: ($) => "influence",
-  loyalty_ident: ($) => "loyalty",
-  cooldown_years_ident: ($) => "cooldown_years",
-  max_absolutism_ident: ($) =>
-    prec.left(
-      "max_absolutism",
-    ) /* can be both an argument in a estate priv, and a modifier */,
-  can_select_ident: ($) => "can_select",
-  is_valid_ident: ($) => "is_valid",
-  can_revoke_ident: ($) => "can_revoke",
-  on_granted_ident: ($) => "on_granted",
-  on_revoked_ident: ($) => "on_revoked",
-  on_invalid_ident: ($) => "on_invalid",
-  on_cooldown_expires_ident: ($) => "on_cooldown_expires",
-  penalties_ident: ($) => "penalties",
-  benefits_ident: ($) => "benefits",
-  modifier_by_land_ownership_ident: ($) => "modifier_by_land_ownership",
-  home_province_ident: ($) => "home_province",
-  location_ident: ($) => "location",
-  potential_ident: ($) => "potential",
-  allow_ident: ($) => "allow",
-  effect_ident: ($) => "effect",
-  provinces_to_highlight_ident: ($) => "provinces_to_highlight",
-  slot_ident: ($) => "slot",
-  generic_ident: ($) => "generic",
-  ai_ident: ($) => "ai",
-  has_country_shield_ident: ($) => "has_country_shield",
-  icon_ident: ($) => "icon",
-  position_ident: ($) => "position",
-  add_years_of_owned_provinces_production_income_ident: ($) =>
-    "add_years_of_owned_provinces_production_income",
-  add_years_of_owned_provinces_manpower_ident: ($) =>
-    "add_years_of_owned_provinces_manpower",
-  add_years_of_owned_provinces_sailors_ident: ($) =>
-    "add_years_of_owned_provinces_sailors",
-  required_missions_ident: ($) => "required_missions",
-  development_in_provinces_ident: ($) => "development_in_provinces",
-  mean_time_to_happen_ident: ($) => "mean_time_to_happen",
-  custom_button_ident: ($) => "custom_button",
-  custom_window_ident: ($) => "custom_window",
-  custom_icon_ident: ($) => "custom_icon",
-  custom_text_box_ident: ($) => "custom_text_box",
-  custom_tooltip_ident: ($) => "custom_tooltip",
-  variable_arithmetic_trigger_ident: ($) => "variable_arithmetic_trigger",
-  which_ident: ($) => "which",
-  variable_name_ident: ($) => "variable_name",
-  export_to_variable_ident: ($) => "export_to_variable",
-  effect_variable_combined_ident: ($) =>
-    /((set)|(change)|(subtract)|(divide)|(multiply)|(round)|(sqrt)|(random)|(modulo))_variable/,
-  trigger_variable_combined_ident: ($) =>
-    /(check_variable)|(is_variable_equal)/,
-  frame_ident: ($) => "frame",
-  number_ident: ($) => "number",
-  owner_ident: ($) => "owner",
-  every_ident: ($) => "every",
-  frame_variable_ident: ($) => "frame_variable",
-  ai_chance_ident: ($) => "ai_chance",
-  key_ident: ($) => "key",
-  power_ident: ($) => "power",
-  casus_belli_ident: ($) => "casus_belli",
-  war_goal_province_ident: ($) => "war_goal_province",
-  declare_war_with_cb_ident: ($) => "declare_war_with_cb",
-  add_trade_modifier_ident: ($) => "add_trade_modifier",
-
-  /* Built in language constructs */
-  country_effect_conditional_block: ($) =>
-    seq(
-      field("country_effect", $.if_ident),
-      "=",
-      "{",
-      $.country_limit,
-      optional($.country_effects_block),
-      "}",
-      prec(1, repeat($.country_effect_else_if_block)),
-      prec(1, optional($.country_effect_else_block)),
-    ),
-  country_limit: ($) =>
-    seq(
-      field("country_trigger", $.limit_ident),
-      "=",
-      "{",
-      $.country_trigger_block,
-      "}",
-    ),
-  country_effect_else_if_block: ($) =>
-    seq(
-      field("country_effect", $.else_if_ident),
-      "=",
-      "{",
-      $.country_limit,
-      $.country_effects_block,
-      "}",
-    ),
-  country_effect_else_block: ($) =>
-    seq(
-      field("country_effect", $.else_ident),
-      "=",
-      "{",
-      $.country_effects_block,
-      "}",
-    ),
-
-  country_trigger_block: ($) => repeat1($.country_trigger_statement),
-  country_trigger_statement: ($) =>
-    choice(
-      $.country_trigger_statement_simple,
-      $.country_trigger_statement_flag,
-      prec(1, $.country_trigger_statement_block),
-      // NOTE: scripted triggers should? probably be low prio like this
-      $.country_trigger_scripted_trigger,
-      $.country_trigger_logic,
-      $.country_trigger_conditional_block,
-      $.country_calc_true_if,
-      $.any_hired_mercenary_company, // TODO: special cased
-      $.trigger_change_scope,
-      $.country_trigger_change_scope,
-    ),
-  any_hired_mercenary_company: ($) =>
-    seq(
-      field("country_trigger", "any_hired_mercenary_company"),
-      "=",
-      "{",
-      $.unit_trigger_block,
-      "}",
-    ),
-  country_calc_true_if: ($) =>
-    seq(
-      field("country_trigger", $.calc_true_if_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.amount_ident), "=", $.number),
-          seq(field("argument", $.desc_ident), "=", $.identifier),
-          $.country_trigger_statement,
-          seq(
-            $.exclude_from_progress_ident,
-            "=",
-            "{",
-            $.country_trigger_statement,
-            "}",
-          ),
-        ),
-      ),
-      "}",
-    ),
-  country_trigger_statement_flag: ($) =>
-    seq(
-      field(
-        "country_trigger",
-        choice(
-          "has_global_flag",
-          "has_country_flag",
-          "has_ruler_flag",
-          "has_consort_flag",
-          "has_heir_flag",
-        ),
-      ),
-      "=",
-      $.identifier,
-      optional(field("argument", $.scope_suffix)),
-    ),
-  country_trigger_conditional_block: ($) =>
-    seq(
-      field("country_trigger", $.if_ident),
-      "=",
-      "{",
-      $.country_limit,
-      optional($.country_trigger_block),
-      "}",
-      prec(1, repeat($.country_trigger_else_if_block)),
-      prec(1, optional($.country_trigger_else_block)),
-    ),
-  country_trigger_else_if_block: ($) =>
-    seq(
-      field("country_trigger", $.else_if_ident),
-      "=",
-      "{",
-      $.country_limit,
-      $.country_trigger_block,
-      "}",
-    ),
-  country_trigger_else_block: ($) =>
-    seq(
-      field("country_trigger", $.else_ident),
-      "=",
-      "{",
-      $.country_trigger_block,
-      "}",
-    ),
-
-  country_trigger_change_scope: ($) =>
-    choice(
-      seq(
-        field("province_trigger", choice(...COUNTRY_TO_PROVINCE_TRIGGER_SCOPE)),
-        "=",
-        "{",
-        optional(
-          seq(
-            field("argument", $.type_ident),
-            "=",
-            choice($.any_ident, $.all_ident),
-          ),
-        ),
-        $.province_trigger_block,
-        "}",
-      ),
-      seq(
-        field("country_trigger", choice(...COUNTRY_TO_COUNTRY_TRIGGER_SCOPE)),
-        "=",
-        "{",
-        optional(
-          seq(
-            field("argument", $.type_ident),
-            "=",
-            choice($.any_ident, $.all_ident),
-          ),
-        ),
-        $.country_trigger_block,
-        "}",
-      ),
-    ),
-  trigger_change_scope: ($) =>
-    choice(
-      seq(
-        // NOTE: tree-sitter's context free approach can't know if the generic
-        // scopes go to country or province scope .. so we allow both
-        choice(...GENERIC_SCOPES),
-        "=",
-        "{",
-        choice($.country_trigger_block, $.province_trigger_block),
-        "}",
-      ),
-      seq(
-        field("country_trigger", $.tag),
-        "=",
-        "{",
-        $.country_trigger_block,
-        "}",
-      ),
-      seq(
-        field("country_trigger", choice(...COUNTRY_TRIGGER_SCOPE)),
-        "=",
-        "{",
-        optional(
-          seq(
-            field("argument", $.type_ident),
-            "=",
-            choice($.any_ident, $.all_ident),
-          ),
-        ),
-        $.country_trigger_block,
-        "}",
-      ),
-      seq(
-        field("province_trigger", choice(...PROVINCE_TRIGGER_SCOPE)),
-        "=",
-        "{",
-        optional(
-          seq(
-            field("argument", $.type_ident),
-            "=",
-            choice($.any_ident, $.all_ident),
-          ),
-        ),
-        $.province_trigger_block,
-        "}",
-      ),
-      seq(
-        field("province_trigger", $.province),
-        "=",
-        "{",
-        $.province_trigger_block,
-        "}",
-      ),
-      seq(
-        field("province_trigger", choice($.area, $.region, $.province_group)),
-        "=",
-        "{",
-        optional(
-          seq(
-            field("argument", $.type_ident),
-            "=",
-            choice($.any_ident, $.all_ident),
-          ),
-        ),
-        $.province_trigger_block,
-        "}",
-      ),
-      seq(
-        field("country_trigger", $.event_target_full_ident),
-        "=",
-        "{",
-        $.country_trigger_block,
-        "}",
-      ),
-      seq(
-        field("province_trigger", $.event_target_full_ident),
-        "=",
-        "{",
-        $.province_trigger_block,
-        "}",
-      ),
-    ),
-  country_trigger_logic: ($) =>
-    seq(
-      field("country_trigger", choice(...LOGIC)),
-      "=",
-      "{",
-      $.country_trigger_block,
-      "}",
-    ),
-  country_trigger_statement_simple: ($) =>
-    choice(
-      seq(
-        field("country_trigger", choice(...COUNTRY_TRIGGER_STATEMENTS_BOOL)),
-        "=",
-        $.bool,
-      ),
-      seq(
-        field("country_trigger", choice(...COUNTRY_TRIGGER_STATEMENTS_NUM)),
-        "=",
-        $.number,
-      ),
-      seq(
-        field("country_trigger", choice(...COUNTRY_TRIGGER_STATEMENTS_IDENT)),
-        "=",
-        $.identifier,
-      ), // TODO: more granular?
-      seq(
-        field("country_trigger", choice(...COUNTRY_TRIGGER_STATEMENTS_TAG)),
-        "=",
-        choice(...GENERIC_SCOPES, $.tag, $.event_target_full_ident),
-      ),
-      seq(
-        field("country_trigger", choice(...COUNTRY_TRIGGER_STATEMENTS_PROV)),
-        "=",
-        choice(...GENERIC_SCOPES, $.province),
-      ),
-      seq(
-        field("country_trigger", choice(...COUNTRY_TRIGGER_STATEMENTS_STR)),
-        "=",
-        $.string,
-      ),
-    ),
-  country_trigger_scripted_trigger: ($) =>
-    seq(
-      field("country_trigger", $.identifier),
-      "=",
-      choice(
-        $.bool,
-        seq(
-          "{",
-          repeat1(
-            seq(
-              field("argument", $.identifier),
-              "=",
-              choice($.identifier, $.string, $.number),
-            ),
-          ),
-          "}",
-        ),
-      ),
-    ),
-
-  country_trigger_statement_block: ($) =>
-    choice(
-      $.estate_influence,
-      $.country_num_of_provinces_owned,
-      $.country_custom_trigger_tooltip,
-      $.country_hidden_trigger,
-      $.development_in_provinces,
-      $.country_variable_arithmetic_trigger,
-    ),
-
-  development_in_provinces: ($) =>
-    seq(
-      field("province_trigger", $.development_in_provinces_ident),
-      "=",
-      "{",
-      seq(field("argument", $.value_ident), "=", $.number),
-      $.province_trigger_block,
-      "}",
-    ),
-  country_hidden_trigger: ($) =>
-    seq(
-      field("country_trigger", $.hidden_trigger_ident),
-      "=",
-      "{",
-      $.country_trigger_block,
-      "}",
-    ),
-  country_num_of_provinces_owned: ($) =>
-    seq(
-      field("province_trigger", $.num_of_provinces_owned_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.value_ident), "=", $.number),
-          $.province_trigger_statement,
-        ),
-      ),
-      "}",
-    ),
-  estate_influence: ($) =>
-    seq(
-      field("country_trigger", $.estate_influence_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq("estate", "=", $.identifier),
-          seq("influence", "=", $.number),
-        ),
-      ),
-      "}",
-    ),
-  country_custom_trigger_tooltip: ($) =>
-    seq(
-      field("country_trigger", $.custom_trigger_tooltip_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.tooltip_ident), "=", $.identifier),
-          $.country_trigger_statement,
-        ),
-      ),
-      "}",
-    ),
-  /* Custom gui file */
-  custom_gui_file: ($) => repeat1($.custom_gui_statement),
-  custom_gui_statement: ($) =>
-    choice($.custom_button, $.custom_window, $.custom_icon, $.custom_text_box),
-  custom_button: ($) =>
-    seq(
-      $.custom_button_ident,
-      "=",
-      "{",
-      choice(
-        repeat1($.country_custom_button_statement),
-        repeat1($.province_custom_button_statement),
-      ),
-      "}",
-    ),
-  custom_text_box: ($) =>
-    seq(
-      $.custom_text_box_ident,
-      "=",
-      "{",
-      repeat1($.custom_text_box_statement),
-      "}",
-    ),
-  custom_icon: ($) =>
-    seq($.custom_icon_ident, "=", "{", repeat1($.custom_icon_statement), "}"),
-  custom_window: ($) =>
-    seq(
-      $.custom_window_ident,
-      "=",
-      "{",
-      repeat1($.custom_window_statement),
-      "}",
-    ),
-
-  province_custom_button_statement: ($) =>
-    choice(
-      seq(
-        field("argument", $.name_ident),
-        "=",
-        field("namespace", choice($.string, $.identifier)),
-      ),
-      $.province_potential,
-      // $.province_effect,
-      $.province_effect_block_statement,
-      $.province_option_trigger,
-      $.province_frame_trigger,
-      seq(
-        field("argument", $.tooltip_ident),
-        "=",
-        choice($.string, $.identifier),
-      ),
-    ),
-
-  country_custom_button_statement: ($) =>
-    choice(
-      seq(
-        field("argument", $.name_ident),
-        "=",
-        field("namespace", choice($.string, $.identifier)),
-      ),
-      $.country_potential,
-      // $.province_effect,
-      $.decision_effect,
-      $.country_option_trigger,
-      $.country_frame_trigger,
-      seq(
-        field("argument", $.tooltip_ident),
-        "=",
-        choice($.string, $.identifier),
-      ),
-    ),
-
-  custom_icon_statement: ($) =>
-    choice(
-      seq(
-        field("argument", $.name_ident),
-        "=",
-        field("namespace", choice($.string, $.identifier)),
-      ),
-      $.province_potential,
-      seq(
-        field("argument", $.frame_variable_ident),
-        "=",
-        choice($.string, $.identifier),
-      ),
-      $.province_frame_trigger,
-      seq(
-        field("argument", $.tooltip_ident),
-        "=",
-        choice($.string, $.identifier),
-      ),
-    ),
-  custom_text_box_statement: ($) =>
-    choice(
-      seq(
-        field("argument", $.name_ident),
-        "=",
-        field("namespace", choice($.string, $.identifier)),
-      ),
-      seq(
-        field("argument", $.tooltip_ident),
-        "=",
-        choice($.string, $.identifier),
-      ),
-      $.province_potential,
-    ),
-  custom_window_statement: ($) =>
-    choice(
-      seq(
-        field("argument", $.name_ident),
-        "=",
-        field("namespace", choice($.string, $.identifier)),
-      ),
-      $.province_potential,
-      seq(
-        field("argument", $.tooltip_ident),
-        "=",
-        choice($.string, $.identifier),
-      ),
-    ),
-  province_frame_trigger: ($) =>
-    seq(
-      field("argument", $.frame_ident),
-      "=",
-      "{",
-      $.number_ident,
-      "=",
-      $.number,
-      $.province_option_trigger,
-      "}",
-    ),
-  country_frame_trigger: ($) =>
-    seq(
-      field("argument", $.frame_ident),
-      "=",
-      "{",
-      $.number_ident,
-      "=",
-      $.number,
-      $.country_option_trigger,
-      "}",
-    ),
-  /* Modifiers definitions */
-  modifiers_file: ($) => repeat1($.modifier_definition),
-  modifier_definition: ($) =>
-    seq($.identifier, "=", "{", repeat($.modifier), "}"),
-  country_modifier_statement: ($) =>
-    seq(
-      field("argument", $.modifier_ident),
-      "=",
-      "{",
-      repeat1($.country_modifier),
-      "}",
-    ),
-  country_modifier: ($) =>
-    choice(
-      seq(
-        choice(
-          field("country_modifier", prec(1, choice(...MODIFIER_GLOBAL_NUM))),
-          $.identifier,
-        ),
-        "=",
-        $.number,
-      ),
-      seq(
-        field("country_effect", choice(...MODIFIER_GLOBAL_BOOL)),
-        "=",
-        $.bool,
-      ),
-    ),
-  modifier: ($) =>
-    choice(
-      $.country_modifier,
-      seq(
-        field("province_effect", choice(...MODIFIER_LOCAL_NUM)),
-        "=",
-        $.number,
-      ),
-      seq(
-        field("province_effect", choice(...MODIFIER_LOCAL_BOOL)),
-        "=",
-        $.bool,
-      ),
-      seq(
-        field("argument", $.picture_ident),
-        "=",
-        choice($.string, $.identifier),
-      ),
-    ),
-  /* Missions */
-  missions_file: ($) => repeat1($.mission_block),
-  mission_block: ($) =>
-    seq(
-      field("namespace", $.identifier),
-      "=",
-      "{",
-      repeat1($.mission_block_statement),
-      "}",
-    ),
-  mission_block_statement: ($) =>
-    choice(
-      $.slot,
-      $.generic,
-      $.ai,
-      $.has_country_shield,
-      $.country_potential,
-      $.mission_definition,
-    ),
-  slot: ($) => seq(field("argument", $.slot_ident), "=", $.number),
-  generic: ($) => seq(field("argument", $.generic_ident), "=", $.bool),
-  ai: ($) => seq(field("argument", $.ai_ident), "=", $.bool),
-  has_country_shield: ($) =>
-    seq(field("argument", $.has_country_shield_ident), "=", $.bool),
-  mission_definition: ($) =>
-    seq(
-      field("namespace", $.identifier),
-      "=",
-      "{",
-      repeat1($.mission_definition_statement),
-      "}",
-    ),
-  mission_definition_statement: ($) =>
-    choice(
-      $.icon,
-      $.position,
-      $.required_missions,
-      $.provinces_to_highlight,
-      $.mission_trigger,
-      $.mission_effect,
-    ),
-  icon: ($) => seq(field("argument", $.icon_ident), "=", $.identifier),
-  position: ($) => seq(field("argument", $.position_ident), "=", $.number),
-  required_missions: ($) =>
-    seq(
-      field("argument", $.required_missions_ident),
-      "=",
-      "{",
-      repeat($.identifier),
-      "}",
-    ),
-  mission_trigger: ($) =>
-    seq(
-      field("country_trigger", $.trigger_ident),
-      "=",
-      "{",
-      $.country_trigger_block,
-      "}",
-    ),
-  mission_effect: ($) =>
-    seq(
-      field("country_effect", $.effect_ident),
-      "=",
-      "{",
-      $.country_effects_block,
-      "}",
-    ),
-  /* Estate privileges */
-
-  estate_privileges_file: ($) => repeat1($.estate_privilege),
-  estate_privilege: ($) =>
-    seq(
-      field("namespace", $.identifier),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          $.icon,
-          $.land_share,
-          $.max_absolutism,
-          $.influence,
-          $.loyalty,
-          $.cooldown_years,
-          $.ai_will_do,
-          $.conditional_modifier,
-          $.priv_mechanics,
-          $.priv_triggers,
-          $.priv_effects,
-          $.priv_province_effects,
-          $.priv_modifiers,
-        ),
-      ),
-      "}",
-    ),
-  conditional_modifier: ($) =>
-    seq(
-      field(
-        "argument",
-        choice(
-          $.conditional_modifier_ident,
-          $.influence_scaled_conditional_modifier_ident,
-        ),
-      ),
-      "=",
-      "{",
-      repeat(
-        choice(
-          $.country_option_trigger /* trigger = { <triggers> } */,
-          seq(
-            field("country_modifier", $.modifier_ident),
-            "=",
-            "{",
-            repeat($.country_modifier),
-            "}",
-          ),
-          seq(field("argument", $.is_bad_ident), "=", $.bool),
-        ),
-      ),
-      "}",
-    ),
-  land_share: ($) => seq(field("argument", $.land_share_ident), "=", $.number),
-  influence: ($) => seq(field("argument", $.influence_ident), "=", $.number),
-  loyalty: ($) => seq(field("argument", $.loyalty_ident), "=", $.number),
-  cooldown_years: ($) =>
-    seq(field("argument", $.cooldown_years_ident), "=", $.number),
-
-  priv_mechanics: ($) =>
-    seq(
-      field("argument", $.mechanics_ident),
-      "=",
-      "{",
-      repeat($.identifier),
-      "}",
-    ),
-  priv_triggers: (
-    $ /* priv specific trigger blocks: can_select, is_valid, can_revoke  */,
-  ) =>
-    seq(
-      field(
-        "country_trigger",
-        choice($.can_select_ident, $.is_valid_ident, $.can_revoke_ident),
-      ),
-      "=",
-      "{",
-      optional($.country_trigger_block),
-      "}",
-    ),
-
-  priv_effects: (
-    $ /* priv specific effects blocks: on_granted, on_revoked, on_invalid, on_cooldown_expires */,
-  ) =>
-    seq(
-      field(
-        "country_effect",
-        choice(
-          $.on_granted_ident,
-          $.on_revoked_ident,
-          $.on_invalid_ident,
-          $.on_cooldown_expires_ident,
-        ),
-      ),
-      "=",
-      "{",
-      optional($.country_effects_block),
-      "}",
-    ),
-
-  priv_province_effects: ($) =>
-    seq(
-      field(
-        "province_effect",
-        choice(
-          $.on_granted_province_ident,
-          $.on_revoked_province_ident,
-          $.on_invalid_province_ident,
-        ),
-      ),
-      "=",
-      "{",
-      repeat($.province_effect),
-      "}",
-    ),
-  priv_modifiers: (
-    $ /* priv specific modifiers blocks: penalties, benefits, modifier_by_land_ownership */,
-  ) =>
-    seq(
-      field(
-        "country_modifier",
-        choice(
-          $.penalties_ident,
-          $.benefits_ident,
-          $.modifier_by_land_ownership_ident,
-        ),
-      ),
-      "=",
-      "{",
-      repeat($.country_modifier),
-      "}",
-    ),
-  max_absolutism: ($) =>
-    seq(field("argument", $.max_absolutism_ident), "=", $.number),
-  /* Church aspects */
-  church_aspects_file: ($) => repeat1($.church_aspect),
-  church_aspect: ($) =>
-    seq(
-      field("namespace", $.identifier),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.cost_ident), "=", $.number),
-          seq(field("argument", $.sprite_ident), "=", $.string),
-        ),
-      ),
-      repeat1(
-        choice(
-          $.country_potential,
-          $.ai_will_do,
-          $.decision_effect,
-          $.country_option_trigger,
-          $.country_modifier_statement,
-        ),
-      ),
-      "}",
-    ),
-  /* Decisions */
-  decisions_file: ($) =>
-    seq("country_decisions", "=", "{", repeat1($.decision), "}"),
-  decision: ($) =>
-    seq(
-      field("namespace", $.identifier),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          $.major,
-          $.color,
-          $.provinces_to_highlight,
-          $.country_potential,
-          $.decision_allow,
-          $.decision_effect,
-          $.ai_will_do,
-          $.ai_importance,
-        ),
-      ),
-      "}",
-    ),
-
-  color: ($) =>
-    seq(
-      field("argument", $.color_ident),
-      "=",
-      "{",
-      $.byte,
-      $.byte,
-      $.byte,
-      "}",
-    ),
-
-  ai_will_do: ($) =>
-    seq(
-      $.ai_will_do_ident,
-      "=",
-      "{",
-      seq(field("argument", $.factor_ident), "=", $.number),
-      repeat(
-        seq(
-          field("country_trigger", $.modifier_ident),
-          "=",
-          "{",
-          $.country_modifier_block,
-          "}",
-        ),
-      ),
-      "}",
-    ),
-  ai_importance: ($) =>
-    seq(field("argument", $.ai_importance_ident), "=", $.number),
-  province_potential: ($) =>
-    seq(
-      field("province_trigger", $.potential_ident),
-      "=",
-      "{",
-      optional($.province_trigger_block),
-      "}",
-    ),
-  country_potential: ($) =>
-    seq(
-      field("country_trigger", $.potential_ident),
-      "=",
-      "{",
-      $.country_trigger_block,
-      "}",
-    ),
-  provinces_to_highlight: ($) =>
-    seq(
-      field("province_trigger", $.provinces_to_highlight_ident),
-      "=",
-      "{",
-      optional($.province_trigger_block),
-      "}",
-    ),
-  decision_allow: ($) =>
-    seq(
-      field("country_trigger", $.allow_ident),
-      "=",
-      "{",
-      $.country_trigger_block,
-      "}",
-    ),
-  decision_effect: ($) =>
-    seq(
-      field("country_effect", $.effect_ident),
-      "=",
-      "{",
-      $.country_effects_block,
-      "}",
-    ),
-  /* Events */
-  events_file: ($) =>
-    seq(
-      optional($.namespace),
-      repeat1(choice($.province_event, $.country_event)),
-    ),
-  namespace: ($) => seq("namespace", "=", field("namespace", $.identifier)),
-
-  // event metadata
-  event_id: ($) =>
-    seq(
-      field("argument", $.id_ident),
-      "=",
-      field("namespace", choice($.string, $.identifier, $.number)),
-    ),
-  event_title: ($) =>
-    seq(field("argument", $.title_ident), "=", choice($.string, $.identifier)),
-  country_event_desc: ($) =>
-    seq(
-      field("argument", $.desc_ident),
-      "=",
-      choice(
-        $.string,
-        $.identifier,
-        seq(
-          "{",
-          repeat1(
-            choice(
-              $.country_option_trigger,
-              seq(
-                field("argument", $.desc_ident),
-                "=",
-                choice($.string, $.identifier),
-              ),
-            ),
-          ),
-          "}",
-        ),
-      ),
-    ),
-  province_event_desc: ($) =>
-    seq(
-      field("argument", $.desc_ident),
-      "=",
-      choice(
-        $.string,
-        $.identifier,
-        seq(
-          "{",
-          repeat1(
-            choice(
-              $.province_option_trigger,
-              seq(
-                field("argument", $.desc_ident),
-                "=",
-                choice($.string, $.identifier),
-              ),
-            ),
-          ),
-          "}",
-        ),
-      ),
-    ),
-  country_event_picture: ($) =>
-    seq(
-      field("argument", $.picture_ident),
-      "=",
-
-      choice(
-        $.string,
-        $.identifier,
-        seq(
-          "{",
-          repeat1(
-            choice(
-              $.country_option_trigger,
-              seq(
-                field("argument", $.picture_ident),
-                "=",
-                choice($.string, $.identifier),
-              ),
-            ),
-          ),
-          "}",
-        ),
-      ),
-    ),
-  province_event_picture: ($) =>
-    seq(
-      field("argument", $.picture_ident),
-      "=",
-
-      choice($.string, $.identifier, seq("{", $.province_option_trigger, "}")),
-    ),
-  is_triggered_only: ($) => seq("is_triggered_only", "=", $.bool),
-  fire_only_once: ($) => seq("fire_only_once", "=", $.bool),
-  country_ai_chance: ($) =>
-    seq(
-      field("country_trigger", $.ai_chance_ident),
-      "=",
-      "{",
-      seq(field("argument", $.factor_ident), "=", $.number),
-      repeat($.country_modifier_trigger),
-      "}",
-    ),
-  country_modifier_trigger: ($) =>
-    seq(
-      field("country_trigger", $.modifier_ident),
-      "=",
-      "{",
-      seq(field("argument", $.factor_ident), "=", $.number),
-      $.country_trigger_block,
-      "}",
-    ),
-  province_ai_chance: ($) =>
-    seq(
-      field("province_trigger", $.ai_chance_ident),
-      "=",
-      "{",
-      seq(field("argument", $.factor_ident), "=", $.number),
-      repeat($.province_modifier_trigger),
-      "}",
-    ),
-  province_modifier_trigger: ($) =>
-    seq(
-      field("province_trigger", $.modifier_ident),
-      "=",
-      "{",
-      seq(field("argument", $.factor_ident), "=", $.number),
-      $.province_trigger_block,
-      "}",
-    ),
-  hidden: ($) => seq("hidden", "=", $.bool),
-  goto: ($) => seq("goto", "=", choice($.number, $.identifier, $.event_target)),
-  major: ($) => seq("major", "=", $.bool),
-  major_trigger: ($) =>
-    seq(
-      field("country_trigger", $.major_trigger_ident),
-      "=",
-      "{",
-      $.country_trigger_block,
-      "}",
-    ),
-  // option metadata
-  option_name: ($) =>
-    seq(
-      field("argument", $.name_ident),
-      "=",
-      field("namespace", choice($.string, $.identifier)),
-    ),
-  option_highlight: ($) => seq("highlight", "=", $.bool),
-  country_option_trigger: ($) =>
-    seq(
-      field("country_trigger", $.trigger_ident),
-      "=",
-      "{",
-      $.country_trigger_block,
-      "}",
-    ),
-  province_option_trigger: ($) =>
-    seq(
-      field("province_trigger", $.trigger_ident),
-      "=",
-      "{",
-      optional($.province_trigger_block),
-      "}",
-    ),
-
-  // Country event
-  country_event: ($) =>
-    seq(
-      field("block", $.country_event_ident),
-      "=",
-      "{",
-      repeat1($.country_event_statement),
-      "}",
-    ),
-  province_event: ($) =>
-    seq("province_event", "=", "{", repeat1($.province_event_statement), "}"),
-  province_event_statement: ($) =>
-    choice(
-      $.event_id,
-      $.event_title,
-      $.province_event_desc,
-      $.province_event_picture,
-      $.is_triggered_only,
-      $.fire_only_once,
-      $.hidden,
-      $.major,
-      $.major_trigger,
-      $.goto,
-      $.province_event_mtth,
-      $.province_event_trigger,
-      $.province_event_immediate,
-      $.province_event_after,
-      $.province_event_option,
-    ),
-  country_event_statement: ($) =>
-    choice(
-      $.event_id,
-      $.event_title,
-      $.country_event_desc,
-      $.country_event_picture,
-      $.is_triggered_only,
-      $.fire_only_once,
-      $.hidden,
-      $.major,
-      $.major_trigger,
-      $.goto,
-      $.country_event_mtth,
-      $.country_event_trigger,
-      $.country_event_immediate,
-      $.country_event_after,
-      $.country_event_option,
-    ),
-
-  country_event_mtth: ($) =>
-    seq(
-      field("argument", $.mean_time_to_happen_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq("months", "=", $.number),
-          seq("days", "=", $.number),
-          seq("years", "=", $.number),
-          seq(
-            field("argument", $.modifier_ident),
-            "=",
-            "{",
-            $.country_modifier_block,
-            "}",
-          ),
-        ),
-      ),
-      "}",
-    ),
-  province_event_mtth: ($) =>
-    seq(
-      "mean_time_to_happen",
-      "=",
-      "{",
-      repeat1(choice(seq("months", "=", $.number), seq("days", "=", $.number))),
-      "}",
-    ),
-  country_event_trigger: ($) =>
-    seq(
-      field("country_trigger", $.trigger_ident),
-      "=",
-      "{",
-      optional($.country_trigger_block),
-      "}",
-    ),
-  province_event_trigger: ($) =>
-    seq(
-      field("province_trigger", $.trigger_ident),
-      "=",
-      "{",
-      optional($.province_trigger_block),
-      "}",
-    ),
-  country_event_immediate: ($) =>
-    prec(
-      2,
-      seq(
-        field("country_effect", $.immediate_ident),
-        "=",
-        "{",
-        optional($.country_effects_block),
-        "}",
-      ),
-    ),
-  province_event_immediate: ($) =>
-    prec(
-      2,
-      seq(
-        field("province_effect", $.immediate_ident),
-        "=",
-        "{",
-        optional($.province_effects_block),
-        "}",
-      ),
-    ),
-  country_event_after: ($) =>
-    seq(
-      field("country_effect", $.after_ident),
-      "=",
-      "{",
-      optional($.country_effects_block),
-      "}",
-    ),
-  province_event_after: ($) =>
-    seq(
-      field("province_effect", $.after_ident),
-      "=",
-      "{",
-      optional($.province_effects_block),
-      "}",
-    ),
-  country_event_option: ($) =>
-    seq(
-      field("country_effect", $.option_ident),
-      "=",
-      "{",
-      $.country_event_option_block,
-      "}",
-    ),
-  province_event_option: ($) =>
-    seq(
-      field("province_effect", $.option_ident),
-      "=",
-      "{",
-      $.province_event_option_block,
-      "}",
-    ),
-  /* Country Scope Effects */
-  country_effects_block: ($) => repeat1($.country_effect),
-  country_event_option_block: ($) => repeat1($.country_event_option_statement),
-  country_event_option_statement: ($) =>
-    choice(
-      $.option_name,
-      $.country_ai_chance,
-      $.goto,
-      $.country_effect,
-      $.country_option_trigger,
-      $.option_highlight,
-    ),
-  country_effect: ($) =>
-    // TODO: this should include all possible effects later
-    choice(
-      $.country_effect_statement_simple,
-      $.country_effect_statement_flag,
-      $.country_effect_statement_block,
-      $.country_effect_conditional_block,
-      $.country_effect_trigger_switch,
-      prec(1, $.effect_change_scope),
-      prec(1, $.country_effect_change_scope),
-      $.random_hired_mercenary_company, // special cased for now. TODO: turn into generic COUNTRY_TO_UNIT_CHANGE_SCOPE?
-      // $.country_effect_scripted_effect_precompiled,
-      prec.dynamic(-5, $.country_effect_scripted_effect),
-    ),
-
-  random_hired_mercenary_company: ($) =>
-    seq(
-      field("country_effect", "random_hired_mercenary_company"),
-      "=",
-      "{",
-      optional(
-        seq(
-          field("unit_trigger", $.limit_ident),
-          "=",
-          "{",
-          $.unit_trigger_block,
-          "}",
-        ),
-      ),
-      $.unit_effect_block,
-      "}",
-    ),
-  unit_trigger_block: ($) => repeat1($.unit_trigger_statement),
-  unit_effect_block: ($) => repeat1($.unit_effect_statement),
-  unit_trigger_statement: ($) =>
-    choice(
-      seq(
-        field("unit_trigger", choice(...UNIT_TRIGGER_STATEMENTS_STR)),
-        "=",
-        choice($.string, $.identifier),
-      ),
-      seq(
-        field("unit_trigger", choice(...UNIT_TRIGGER_STATEMENTS_BOOL)),
-        "=",
-        $.bool,
-      ),
-      seq(
-        field("unit_trigger", choice(...UNIT_TRIGGER_STATEMENTS_NUM)),
-        "=",
-        $.number,
-      ),
-      // NOTE: special scope changes
-      seq(
-        field(
-          "province_trigger",
-          choice($.home_province_ident, $.location_ident),
-        ),
-        "=",
-        "{",
-        $.province_trigger_block,
-        "}",
-      ),
-    ),
-  unit_effect_statement: ($) =>
-    choice(
-      // NOTE: special scope changes
-      seq(
-        field(
-          "province_effect",
-          choice($.home_province_ident, $.location_ident),
-        ),
-        "=",
-        "{",
-        $.province_effects_block,
-        "}",
-      ),
-    ),
-  country_effect_trigger_switch: ($) =>
-    seq(
-      field("country_trigger", $.trigger_switch_ident),
-      "=",
-      "{",
-      seq(
-        field("argument", $.on_trigger_ident),
-        "=",
-        choice(
-          field(
-            "country_trigger",
-            choice(
-              "has_global_flag",
-              "has_country_flag",
-              "has_ruler_flag",
-              "has_consort_flag",
-              "has_heir_flag",
-              "mercenary_company",
-              ...COUNTRY_TRIGGER_STATEMENTS_BOOL,
-              ...COUNTRY_TRIGGER_STATEMENTS_NUM,
-              ...COUNTRY_TRIGGER_STATEMENTS_IDENT,
-              ...COUNTRY_TRIGGER_STATEMENTS_TAG, // TODO: is this supported?
-              ...COUNTRY_TRIGGER_STATEMENTS_PROV,
-            ),
-          ),
-        ),
-      ),
-      repeat(
-        seq(
-          field("namespace", $.identifier),
-          "=",
-          "{",
-          $.country_effects_block,
-          "}",
-        ),
-      ),
-      "}",
-    ),
-  country_effect_statement_flag: ($) =>
-    seq(
-      field(
-        "country_effect",
-        choice(
-          "set_global_flag",
-          "set_country_flag",
-          "set_ruler_flag",
-          "set_consort_flag",
-          "set_heir_flag",
-          "clr_global_flag",
-          "clr_country_flag",
-          "clr_ruler_flag",
-          "clr_consort_flag",
-          "clr_heir_flag",
-        ),
-      ),
-      "=",
-      $.identifier,
-      optional(field("argument", $.scope_suffix)),
-    ),
-  event_target: ($) =>
-    token(seq("event_target:", token.immediate(/[a-zA-Z0-9][a-zA-Z0-9\.\_]*/))),
-  scope_suffix: ($) =>
-    seq(
-      token.immediate("@"),
-      token.immediate(
-        choice(
-          ...GENERIC_SCOPES,
-          ...SPECIAL_FLAG_SCOPES,
-          seq("event_target:", token.immediate(/[a-zA-Z0-9][a-zA-Z0-9\.\_]*/)),
-        ),
-      ),
-    ),
-  country_effect_scripted_effect: ($) =>
-    seq(
-      field("country_effect", $.identifier),
-      "=",
-      choice(
-        $.bool,
-        seq(
-          "{",
-          repeat1(
-            seq(
-              field("argument", $.identifier),
-              "=",
-              choice($.identifier, $.string, $.operator, $.number, $.bool),
-            ),
-          ),
-          "}",
-        ),
-      ),
-    ),
-  unit_effect_scripted_effect: ($) =>
-    seq(
-      $.identifier,
-      "=",
-      choice(
-        $.bool,
-        seq(
-          "{",
-          repeat1(
-            seq(
-              field("argument", $.identifier),
-              "=",
-              choice($.identifier, $.string, $.number, $.bool),
-            ),
-          ),
-          "}",
-        ),
-      ),
-    ),
-
-  effect_change_scope: ($) =>
-    choice(
-      seq(
-        // NOTE: tree-sitter's context free approach can't know if the generic
-        // scopes go to country or province scope .. so we allow both
-        choice(...GENERIC_SCOPES),
-        "=",
-        "{",
-        choice($.country_effects_block, $.province_effects_block),
-        "}",
-      ),
-      seq(
-        field("country_effect", $.tag),
-        "=",
-        "{",
-        $.country_effects_block,
-        "}",
-      ),
-      seq(
-        field("province_effect", $.province),
-        "=",
-        "{",
-        $.province_effects_block,
-        "}",
-      ),
-      seq(
-        field("province_effect", choice($.area, $.region, $.province_group)),
-        "=",
-        "{",
-        optional(
-          seq(
-            field("argument", $.type_ident),
-            "=",
-            choice(
-              $.all_ident,
-              seq(
-                $.random_ident,
-                field("argument", $.amount_ident),
-                "=",
-                $.number,
-              ),
-            ),
-          ),
-        ),
-        optional($.province_limit),
-        $.province_effects_block,
-        "}",
-      ),
-      seq(
-        field("province_effect", choice(...PROVINCE_EFFECT_SCOPE)),
-        "=",
-        "{",
-        optional($.province_limit),
-        $.province_effects_block,
-        "}",
-      ),
-      seq(
-        field("country_effect", choice(...COUNTRY_EFFECT_SCOPE)),
-        "=",
-        "{",
-        optional($.country_limit),
-        $.country_effects_block,
-        "}",
-      ),
-      choice(
-        seq(
-          field("country_effect", $.event_target_full_ident),
-          "=",
-          "{",
-          $.country_effects_block,
-          "}",
-        ),
-        seq(
-          field("province_effect", $.event_target_full_ident),
-          "=",
-          "{",
-          $.province_effects_block,
-          "}",
-        ),
-      ),
-    ),
-
-  country_effect_change_scope: ($) =>
-    choice(
-      seq(
-        field("province_effect", choice(...COUNTRY_TO_PROVINCE_EFFECT_SCOPE)),
-        "=",
-        "{",
-        optional($.province_limit),
-        $.province_effects_block,
-        "}",
-      ),
-      seq(
-        field("country_effect", choice(...COUNTRY_TO_COUNTRY_EFFECT_SCOPE)),
-        "=",
-        "{",
-        optional($.country_limit),
-        $.country_effects_block,
-        "}",
-      ),
-    ),
-
-  country_effect_statement_simple: ($) =>
-    // example: add_prestige = 10
-    choice(
-      seq(
-        field("country_effect", choice(...COUNTRY_EFFECT_STATEMENTS_NUM)),
-        "=",
-        $.number,
-      ),
-      seq(
-        field("country_effect", choice(...COUNTRY_EFFECT_STATEMENTS_STR)),
-        "=",
-        $.string,
-      ),
-      seq(
-        field("country_effect", choice(...COUNTRY_EFFECT_STATEMENTS_PROV)),
-        "=",
-        choice(...GENERIC_SCOPES, $.province),
-      ),
-      seq(
-        field("country_effect", choice(...COUNTRY_EFFECT_STATEMENTS_TAG)),
-        "=",
-        choice(...GENERIC_SCOPES, $.tag, $.event_target_full_ident),
-      ),
-      seq(
-        field("country_effect", choice(...COUNTRY_EFFECT_STATEMENTS_VARIABLE)),
-        "=",
-        $.variable_full_ident,
-      ),
-      seq(
-        field("country_effect", choice(...COUNTRY_EFFECT_STATEMENTS_BOOL)),
-        "=",
-        $.bool,
-      ),
-      seq("kill_heir", "=", "{}"), // NOTE: special case special syntax
-      seq(
-        field("country_effect", choice(...COUNTRY_EFFECT_STATEMENTS_IDENT)),
-        "=",
-        $.identifier,
-      ), // TODO more granular?
-    ),
-  country_effect_statement_block: ($) =>
-    choice(
-      $.add_country_modifier,
-      $.country_hidden_effect,
-      $.country_event_effect,
-      $.country_tooltip,
-      $.add_opinion,
-      $.change_country_color,
-      $.country_random,
-      $.country_random_list,
-      $.country_export_to_variable,
-      $.country_math_variable,
-      $.declare_war_with_cb,
-      $.add_years_of_owned_provinces,
-    ),
-
-  add_years_of_owned_provinces: ($) =>
-    seq(
-      field(
-        "country_effect",
-        choice(
-          $.add_years_of_owned_provinces_production_income_ident,
-          $.add_years_of_owned_provinces_manpower_ident,
-          $.add_years_of_owned_provinces_sailors_ident,
-        ),
-      ),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.years_ident), "=", $.number),
-          seq(
-            field("country_effect", $.custom_tooltip_ident),
-            "=",
-            $.identifier,
-          ),
-          $.province_option_trigger,
-        ),
-      ),
-      "}",
-    ),
-  declare_war_with_cb: ($) =>
-    seq(
-      field("country_effect", $.declare_war_with_cb_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(
-            field("argument", $.who_ident),
-            "=",
-            choice(
-              $.tag,
-              ...GENERIC_SCOPES,
-              $.identifier,
-              $.event_target_full_ident,
-            ),
-          ),
-          seq(field("argument", $.casus_belli_ident), "=", $.identifier),
-          seq(field("argument", $.war_goal_province_ident), "=", $.province),
-        ),
-      ),
-      "}",
-    ),
-
-  country_tooltip: ($) =>
-    seq(
-      field("country_effect", $.tooltip_ident),
-      "=",
-      "{",
-      $.country_effects_block,
-      "}",
-    ),
-  country_random: ($) =>
-    seq(
-      field("country_effect", $.random_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.chance_ident), "=", $.number),
-          $.country_effect,
-        ),
-      ),
-      "}",
-    ),
-  country_modifier_block: ($) =>
-    repeat1(
-      choice(
-        seq(field("argument", $.factor_ident), "=", $.number),
-        $.country_trigger_statement,
-      ),
-    ),
-  province_modifier_block: ($) =>
-    repeat1(
-      choice(
-        seq(field("argument", $.factor_ident), "=", $.number),
-        $.province_trigger_statement,
-      ),
-    ),
-  country_random_list: ($) =>
-    seq(
-      field("country_effect", $.random_list_ident),
-      "=",
-      "{",
-      repeat1(
-        seq(
-          field("argument", $.number),
-          "=",
-          "{",
-          repeat(
-            choice(
-              seq(
-                field("argument", $.modifier_ident),
-                "=",
-                "{",
-                $.country_modifier_block,
-                "}",
-              ),
-              seq(
-                field("country_trigger", $.trigger_ident),
-                "=",
-                "{",
-                $.country_trigger_block,
-                "}",
-              ),
-              $.country_effect,
-            ),
-          ),
-          "}",
-        ),
-      ),
-      "}",
-    ),
-  add_opinion: ($) =>
-    seq(
-      field("country_effect", $.add_opinion_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(
-            field("argument", $.who_ident),
-            "=",
-            choice($.tag, ...GENERIC_SCOPES, $.identifier),
-          ),
-          seq(field("argument", $.modifier_ident), "=", $.identifier),
-          seq(field("argument", $.multiplier_ident), "=", $.identifier),
-          seq(field("argument", $.years_ident), "=", $.number),
-        ),
-      ),
-      "}",
-    ),
-  add_trade_modifier: ($) =>
-    seq(
-      field("province_effect", $.add_trade_modifier_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(
-            field("argument", $.who_ident),
-            "=",
-            choice(
-              $.tag,
-              ...GENERIC_SCOPES,
-              $.identifier,
-              $.event_target_full_ident,
-            ),
-          ),
-          seq(field("argument", $.duration_ident), "=", $.number),
-          seq(field("argument", $.power_ident), "=", $.number),
-          seq(field("argument", $.key_ident), "=", $.identifier),
-        ),
-      ),
-      "}",
-    ),
-  country_event_effect: ($) =>
-    seq(
-      field("country_effect", $.country_event_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(
-            field("argument", $.id_ident),
-            "=",
-            choice($.identifier, $.number, $.string),
-          ),
-          seq(field("argument", $.days_ident), "=", $.number),
-          seq(field("argument", $.random_ident), "=", $.number),
-          seq(
-            field("argument", $.tooltip_ident),
-            "=",
-            choice($.string, $.identifier),
-          ),
-        ),
-      ),
-      "}",
-    ),
-  /* country scoped effects that need new blocks */
-  country_hidden_effect: ($) =>
-    seq(
-      field("country_effect", $.hidden_effect_ident),
-      "=",
-      "{",
-      $.country_effects_block,
-      "}",
-    ),
-  add_country_modifier: ($) =>
-    seq(
-      field("country_effect", $.add_country_modifier_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(
-            field("argument", $.name_ident),
-            "=",
-            choice($.identifier, $.string),
-          ),
-          seq(field("argument", $.duration_ident), "=", $.number),
-          seq(field("argument", $.hidden_ident), "=", $.bool),
-          seq(
-            field("argument", $.desc_ident),
-            "=",
-            choice($.identifier, $.string),
-          ),
-        ),
-      ),
-      "}",
-    ),
-  change_country_color: ($) =>
-    seq(
-      field("country_effect", $.change_country_color_ident),
-      "=",
-      "{",
-      choice(
-        seq(
-          field("argument", $.color_ident),
-          "=",
-          "{",
-          $.byte,
-          $.byte,
-          $.byte,
-          "}",
-        ),
-        seq(
-          field("argument", $.country_ident),
-          "=",
-          choice($.tag, ...GENERIC_SCOPES),
-        ),
-      ),
-      "}",
-    ),
-
-  /* Province Scope Effects */
-  province_effects_block: ($) => repeat1($.province_effect),
-  province_event_option_block: ($) =>
-    repeat1($.province_event_option_statement),
-  province_event_option_statement: ($) =>
-    choice(
-      $.option_name,
-      $.province_ai_chance,
-      $.goto,
-      $.province_effect,
-      $.province_option_trigger,
-      $.option_highlight,
-    ),
-  province_effect: ($) =>
-    // TODO: this should include all possible effects later
-    choice(
-      $.province_effect_statement_simple,
-      $.province_effect_statement_flag,
-      $.province_effect_trigger_switch,
-      $.province_effect_statement_block,
-      $.province_effect_conditional_block,
-      prec(-5, $.province_effect_scripted_effect),
-      prec(1, $.effect_change_scope),
-      prec(1, $.province_effect_change_scope),
-    ),
-
-  province_effect_scripted_effect: ($) =>
-    seq(
-      field("province_effect", $.identifier),
-      "=",
-      choice(
-        $.bool,
-        seq(
-          "{",
-          repeat1(
-            seq(
-              field("argument", $.identifier),
-              "=",
-              choice($.identifier, $.string, $.operator, $.number, $.bool),
-            ),
-          ),
-          "}",
-        ),
-      ),
-    ),
-
-  province_effect_trigger_switch: ($) =>
-    seq(
-      field("province_trigger", $.trigger_switch_ident),
-      "=",
-      "{",
-      seq(
-        field("argument", $.on_trigger_ident),
-        "=",
-        choice(
-          field(
-            "province_trigger",
-            choice(
-              "has_global_flag",
-              "has_province_flag",
-              ...PROVINCE_TRIGGER_STATEMENTS_BOOL,
-              ...PROVINCE_TRIGGER_STATEMENTS_NUM,
-              ...PROVINCE_TRIGGER_STATEMENTS_IDENT,
-              ...PROVINCE_TRIGGER_STATEMENTS_TAG, // TODO: is this supported?
-              ...PROVINCE_TRIGGER_STATEMENTS_PROV,
-            ),
-          ),
-        ),
-      ),
-      repeat(seq($.identifier, "=", "{", $.province_effects_block, "}")),
-      "}",
-    ),
-  province_effect_statement_flag: ($) =>
-    seq(
-      field(
-        "province_effect",
-        choice(
-          "set_global_flag",
-          "set_province_flag",
-          "clr_global_flag",
-          "clr_province_flag",
-        ),
-      ),
-      "=",
-      $.identifier,
-      optional(field("argument", $.scope_suffix)),
-    ),
-  province_effect_change_scope: ($) =>
-    choice(
-      seq(
-        field("province_effect", choice(...PROVINCE_TO_PROVINCE_EFFECT_SCOPE)),
-        "=",
-        "{",
-        optional($.province_limit),
-        $.province_effects_block,
-        "}",
-      ),
-      seq(
-        field("country_effect", choice(...PROVINCE_TO_COUNTRY_EFFECT_SCOPE)),
-        "=",
-        "{",
-        optional($.country_limit),
-        $.country_effects_block,
-        "}",
-      ),
-      seq(
-        field("province_effect", choice(...PROVINCE_TO_PROVINCE_EFFECT_SCOPE)),
-        "=",
-        "{",
-        optional($.province_limit),
-        optional(
-          seq(
-            field("argument", $.type_ident),
-            "=",
-            choice(
-              $.every_ident,
-              seq(
-                $.random_ident,
-                field("argument", $.amount_ident),
-                "=",
-                $.number,
-              ),
-            ),
-          ),
-        ),
-
-        $.province_effects_block,
-        "}",
-      ),
-    ),
-
-  province_effect_statement_simple: ($) =>
-    // example: add_prestige = 10
-    choice(
-      seq(
-        field("province_effect", choice(...PROVINCE_EFFECT_STATEMENTS_NUM)),
-        "=",
-        $.number,
-      ),
-      seq(
-        field("province_effect", choice(...PROVINCE_EFFECT_STATEMENTS_BOOL)),
-        "=",
-        $.bool,
-      ),
-      seq(
-        field("province_effect", choice(...PROVINCE_EFFECT_STATEMENTS_STR)),
-        "=",
-        $.string,
-      ),
-      seq(
-        field("province_effect", choice(...PROVINCE_EFFECT_STATEMENTS_PROV)),
-        "=",
-        choice(...GENERIC_SCOPES, $.province),
-      ),
-      seq(
-        field(
-          "province_effect",
-          choice(...PROVINCE_EFFECT_STATEMENTS_VARIABLE),
-        ),
-        "=",
-        $.variable_full_ident,
-      ),
-      seq(
-        field("province_effect", choice(...PROVINCE_EFFECT_STATEMENTS_IDENT)),
-        "=",
-        $.identifier,
-      ), // TODO more granular?
-      seq(
-        field("province_effect", choice(...PROVINCE_EFFECT_STATEMENTS_TAG)),
-        "=",
-        choice($.tag, ...GENERIC_SCOPES, $.event_target_full_ident),
-      ),
-    ),
-  province_effect_statement_block: ($) =>
-    choice(
-      $.add_province_modifier,
-      $.add_trade_modifier,
-      $.province_event_effect,
-      $.province_hidden_effect,
-      $.province_tooltip,
-      $.kill_units,
-      $.province_random,
-      $.province_random_list,
-      $.province_export_to_variable,
-      $.province_math_variable,
-    ),
-
-  province_random_list: ($) =>
-    seq(
-      field("province_effect", $.random_list_ident),
-      "=",
-      "{",
-      repeat1(
-        seq(
-          field("argument", $.number),
-          "=",
-          "{",
-          repeat(
-            choice(
-              seq(
-                field("argument", $.modifier_ident),
-                "=",
-                "{",
-                $.province_modifier_block,
-                "}",
-              ),
-              seq(
-                field("province_trigger", $.trigger_ident),
-                "=",
-                "{",
-                $.province_trigger_block,
-                "}",
-              ),
-              $.province_effect,
-            ),
-          ),
-          "}",
-        ),
-      ),
-      "}",
-    ),
-  province_random: ($) =>
-    seq(
-      field("province_effect", $.random_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.chance_ident), "=", $.number),
-          $.province_effect,
-        ),
-      ),
-      "}",
-    ),
-
-  province_tooltip: ($) =>
-    seq(
-      field("province_effect", $.tooltip_ident),
-      "=",
-      "{",
-      $.province_effects_block,
-      "}",
-    ),
-  kill_units: ($) =>
-    seq(
-      field("province_effect", $.kill_units_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.who_ident), "=", $.identifier),
-          seq(field("argument", $.type_ident), "=", $.identifier),
-          seq(field("argument", $.amount_ident), "=", $.number),
-        ),
-      ),
-      "}",
-    ),
-
-  province_effect_block_statement: ($) =>
-    seq(
-      field("province_effect", $.effect_ident),
-      "=",
-      "{",
-      optional($.province_effects_block),
-      "}",
-    ),
-  province_hidden_effect: ($) =>
-    seq(
-      field("province_effect", $.hidden_effect_ident),
-      "=",
-      "{",
-      $.province_effects_block,
-      "}",
-    ),
-  add_province_modifier: ($) =>
-    seq(
-      field("province_effect", $.add_province_modifier_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(
-            field("argument", $.name_ident),
-            "=",
-            choice($.identifier, $.string),
-          ),
-          seq(field("argument", $.duration_ident), "=", $.number),
-          seq(field("argument", $.hidden_ident), "=", $.bool),
-          seq(field("argument", $.desc_ident), "=", $.identifier),
-        ),
-      ),
-      "}",
-    ),
-  province_event_effect: ($) =>
-    seq(
-      field("province_effect", $.province_event_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(
-            field("argument", $.id_ident),
-            "=",
-            choice($.identifier, $.number, $.string),
-          ),
-          seq(field("argument", $.days_ident), "=", $.number),
-          seq(field("argument", $.random_ident), "=", $.number),
-          seq(
-            field("argument", $.tooltip_ident),
-            "=",
-            choice($.string, $.identifier),
-          ),
-        ),
-      ),
-      "}",
-    ),
-  /* province triggers */
-  province_effect_conditional_block: ($) =>
-    seq(
-      field("province_effect", $.if_ident),
-      "=",
-      "{",
-      $.province_limit,
-      optional($.province_effects_block),
-      "}",
-      prec(1, repeat($.province_else_if_block)),
-      prec(1, optional($.province_else_block)),
-    ),
-  province_limit: ($) =>
-    seq(
-      field("province_trigger", $.limit_ident),
-      "=",
-      "{",
-      $.province_trigger_block,
-      "}",
-    ),
-  province_else_if_block: ($) =>
-    seq(
-      field("province_effect", $.else_if_ident),
-      "=",
-      "{",
-      $.province_limit,
-      $.province_effects_block,
-      "}",
-    ),
-  province_else_block: ($) =>
-    seq(
-      field("province_effect", $.else_ident),
-      "=",
-      "{",
-      $.province_effects_block,
-      "}",
-    ),
-
-  province_trigger_block: ($) => repeat1($.province_trigger_statement),
-  province_trigger_statement: ($) =>
-    choice(
-      $.province_trigger_statement_simple,
-      $.province_trigger_statement_flag,
-      $.province_trigger_statement_block,
-      $.province_trigger_logic,
-      $.province_trigger_conditional_block,
-      $.province_trigger_scripted_trigger,
-      $.province_calc_true_if,
-      $.trigger_change_scope,
-      $.province_trigger_change_scope,
-    ),
-
-  province_calc_true_if: ($) =>
-    seq(
-      field("province_trigger", $.calc_true_if_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.amount_ident), "=", $.number),
-          seq(field("argument", $.desc_ident), "=", $.identifier),
-          $.province_trigger_statement,
-          seq(
-            $.exclude_from_progress_ident,
-            "=",
-            "{",
-            $.province_trigger_statement,
-            "}",
-          ),
-        ),
-      ),
-      "}",
-    ),
-  province_trigger_scripted_trigger: ($) =>
-    seq(
-      field("province_trigger", $.identifier),
-      "=",
-      choice(
-        $.bool,
-        seq(
-          "{",
-          repeat1(
-            seq(
-              field("argument", $.identifier),
-              "=",
-              choice($.identifier, $.string, $.number),
-            ),
-          ),
-          "}",
-        ),
-      ),
-    ),
-
-  province_trigger_statement_flag: ($) =>
-    seq(
-      field("province_trigger", choice("has_global_flag", "has_province_flag")),
-      "=",
-      $.identifier,
-      optional(field("argument", $.scope_suffix)),
-    ),
-  province_trigger_conditional_block: ($) =>
-    seq(
-      field("province_trigger", $.if_ident),
-      "=",
-      "{",
-      $.province_limit,
-      optional($.province_trigger_block),
-      "}",
-      prec(1, repeat($.province_trigger_else_if_block)),
-      prec(1, optional($.province_trigger_else_block)),
-    ),
-  province_trigger_else_if_block: ($) =>
-    seq(
-      field("province_trigger", $.else_if_ident),
-      "=",
-      "{",
-      $.province_limit,
-      $.province_trigger_block,
-      "}",
-    ),
-  province_trigger_else_block: ($) =>
-    seq(
-      field("province_trigger", $.else_ident),
-      "=",
-      "{",
-      $.province_trigger_block,
-      "}",
-    ),
-
-  province_trigger_change_scope: ($) =>
-    choice(
-      seq(
-        field("country_trigger", choice(...PROVINCE_TO_COUNTRY_TRIGGER_SCOPE)),
-        "=",
-        "{",
-        optional(
-          seq(
-            field("argument", $.type_ident),
-            "=",
-            choice($.any_ident, $.all_ident),
-          ),
-        ),
-        $.country_trigger_block,
-        "}",
-      ),
-      seq(
-        field(
-          "province_trigger",
-          choice(...PROVINCE_TO_PROVINCE_TRIGGER_SCOPE),
-        ),
-        "=",
-        "{",
-        optional(
-          seq(
-            field("argument", $.type_ident),
-            "=",
-            choice($.any_ident, $.all_ident),
-          ),
-        ),
-        $.province_trigger_block,
-        "}",
-      ),
-    ),
-  province_trigger_logic: ($) =>
-    seq(
-      field("province_trigger", choice(...LOGIC)),
-      "=",
-      "{",
-      $.province_trigger_block,
-      "}",
-    ),
-  province_trigger_statement_simple: ($) =>
-    choice(
-      seq(
-        field("province_trigger", choice(...PROVINCE_TRIGGER_STATEMENTS_BOOL)),
-        "=",
-        $.bool,
-      ),
-      seq(
-        field("province_trigger", choice(...PROVINCE_TRIGGER_STATEMENTS_STR)),
-        "=",
-        $.string,
-      ),
-      seq(
-        field("province_trigger", choice(...PROVINCE_TRIGGER_STATEMENTS_PROV)),
-        "=",
-        choice($.province, ...GENERIC_SCOPES, $.event_target_full_ident),
-      ),
-      seq(
-        field("province_trigger", choice(...PROVINCE_TRIGGER_STATEMENTS_TAG)),
-        "=",
-        choice(
-          ...GENERIC_SCOPES,
-          $.tag,
-          $.owner_ident,
-          $.event_target_full_ident,
-        ),
-      ),
-      seq(
-        field("province_trigger", choice(...PROVINCE_TRIGGER_STATEMENTS_NUM)),
-        "=",
-        $.number,
-      ),
-      seq(
-        field("province_trigger", choice(...PROVINCE_TRIGGER_STATEMENTS_IDENT)),
-        "=",
-        $.identifier,
-      ), // TODO: more granular?
-    ),
-
-  province_trigger_statement_block: ($) =>
-    choice(
-      $.has_great_project,
-      $.province_hidden_trigger,
-      $.province_custom_trigger_tooltip,
-      $.province_variable_arithmetic_trigger,
-    ),
-
-  country_variable_arithmetic_trigger: ($) =>
-    seq(
-      field("namespace", $.variable_arithmetic_trigger_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          $.country_export_to_variable,
-          $.country_math_variable,
-          seq(field("argument", $.custom_tooltip_ident), "=", $.identifier),
-          $.country_trigger_variable,
-        ),
-      ),
-      "}",
-    ),
-  province_variable_arithmetic_trigger: ($) =>
-    seq(
-      field("namespace", $.variable_arithmetic_trigger_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          $.province_export_to_variable,
-          $.province_math_variable,
-          seq(field("argument", $.custom_tooltip_ident), "=", $.identifier),
-          $.province_trigger_variable,
-        ),
-      ),
-      "}",
-    ),
-
-  country_trigger_variable: ($) =>
-    seq(
-      field("country_trigger", $.trigger_variable_combined_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.which_ident), "=", $.identifier),
-          seq(
-            field("argument", $.value_ident),
-            "=",
-            choice(
-              $.trigger_value_full_ident,
-              $.modifier_value_full_ident,
-              $.number,
-            ),
-          ),
-          seq(field("argument", $.identifier), "=", $.number),
-        ),
-      ),
-      "}",
-    ),
-
-  province_trigger_variable: ($) =>
-    seq(
-      field("province_trigger", $.trigger_variable_combined_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.which_ident), "=", $.identifier),
-          seq(
-            field("argument", $.value_ident),
-            "=",
-            choice(
-              $.trigger_value_full_ident,
-              $.modifier_value_full_ident,
-              $.number,
-            ),
-          ),
-          seq(field("argument", $.identifier), "=", $.number),
-        ),
-      ),
-      "}",
-    ),
-
-  country_math_variable: ($) =>
-    seq(
-      field("country_effect", $.effect_variable_combined_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.which_ident), "=", $.identifier),
-          seq(
-            field("argument", $.value_ident),
-            "=",
-            choice(
-              $.trigger_value_full_ident,
-              $.modifier_value_full_ident,
-              $.number,
-            ),
-          ),
-          seq(field("argument", $.identifier), "=", $.number),
-        ),
-      ),
-      "}",
-    ),
-
-  province_math_variable: ($) =>
-    seq(
-      field("province_effect", $.effect_variable_combined_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.which_ident), "=", $.identifier),
-          seq(
-            field("argument", $.value_ident),
-            "=",
-            choice(
-              $.trigger_value_full_ident,
-              $.modifier_value_full_ident,
-              $.number,
-            ),
-          ),
-          seq(field("argument", $.identifier), "=", $.number),
-        ),
-      ),
-      "}",
-    ),
-
-  country_export_to_variable: ($) =>
-    seq(
-      field("country_effect", $.export_to_variable_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.which_ident), "=", $.identifier),
-          seq(field("argument", $.variable_name_ident), "=", $.identifier),
-          seq(
-            field("argument", $.value_ident),
-            "=",
-            choice(
-              $.trigger_value_full_ident,
-              $.modifier_value_full_ident,
-              ...EXPORTABLE_VALUE_COUNTRY,
-              $.number,
-            ),
-          ),
-          seq(
-            field("argument", $.who_ident),
-            "=",
-            choice(...GENERIC_SCOPES, $.tag),
-          ),
-        ),
-      ),
-      "}",
-    ),
-  province_export_to_variable: ($) =>
-    seq(
-      field("province_effect", $.export_to_variable_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.which_ident), "=", $.identifier),
-          seq(field("argument", $.variable_name_ident), "=", $.identifier),
-          seq(
-            field("argument", $.value_ident),
-            "=",
-            choice(
-              $.trigger_value_full_ident,
-              $.modifier_value_full_ident,
-              ...EXPORTABLE_VALUE_PROVINCE,
-              $.number,
-            ),
-          ),
-          seq(
-            field("argument", $.who_ident),
-            "=",
-            choice(...GENERIC_SCOPES, $.tag),
-          ),
-        ),
-      ),
-      "}",
-    ),
-  country_custom_trigger_tooltip: ($) =>
-    seq(
-      field("country_trigger", $.custom_trigger_tooltip_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.tooltip_ident), "=", $.identifier),
-          $.country_trigger_statement,
-        ),
-      ),
-      "}",
-    ),
-  province_custom_trigger_tooltip: ($) =>
-    seq(
-      field("province_trigger", $.custom_trigger_tooltip_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.tooltip_ident), "=", $.identifier),
-          $.province_trigger_statement,
-        ),
-      ),
-      "}",
-    ),
-  province_hidden_trigger: ($) =>
-    seq(
-      field("province_trigger", $.hidden_trigger_ident),
-      "=",
-      "{",
-      $.province_trigger_block,
-      "}",
-    ),
-  has_great_project: ($) =>
-    seq(
-      field("province_trigger", $.has_great_project_ident),
-      "=",
-      "{",
-      repeat1(
-        choice(
-          seq(field("argument", $.type_ident), "=", $.identifier),
-          seq(field("argument", $.tier_ident), "=", $.number),
-        ),
-      ),
-      "}",
-    ),
-  on_actions_file: ($) =>
-    repeat1(
-      choice($.on_action_province, $.on_action_country, $.on_action_unit),
-    ),
-
-  scripted_effects_file: ($) =>
-    repeat1(
-      choice(
-        $.country_define_scripted_effect,
-        $.province_define_scripted_effect,
-      ),
-    ),
-  country_define_scripted_effect: ($) =>
-    seq(
-      field("country_effect", $.identifier),
-      "=",
-      "{",
-      repeat1($.country_effect), // FIXME: support $arguments$ and [[arguments] here]
-      "}",
-    ),
-  province_define_scripted_effect: ($) =>
-    seq(
-      field("province_effect", $.identifier),
-      "=",
-      "{",
-      repeat1($.province_effect), // FIXME: support $arguments$ and [[arguments] here]
-      "}",
-    ),
-  on_action_province: ($) =>
-    seq(
-      field("province_effect", choice(...ON_ACTION_PROVINCE)),
-      "=",
-      "{",
-      repeat($.on_action_province_statement),
-      "}",
-    ),
-  on_action_unit: ($) =>
-    seq(
-      choice(...ON_ACTION_UNIT),
-      "=",
-      "{",
-      repeat($.unit_effect_scripted_effect), // NOTE: only scripted effects parsed for now
-      "}",
-    ),
-  on_action_country: ($) =>
-    seq(
-      field("country_effect", choice(...ON_ACTION_COUNTRY)),
-      "=",
-      "{",
-      repeat($.on_action_country_statement),
-      "}",
-    ),
-  on_action_province_statement: ($) =>
-    choice(
-      $.on_action_events_block,
-      $.on_action_random_events_block,
-      $.province_effect,
-    ),
-  on_action_events_block: ($) =>
-    seq(
-      field("namespace", $.events_ident),
-      "=",
-      "{",
-      repeat(choice($.string, $.identifier)),
-      "}",
-    ),
-  on_action_random_events_block: ($) =>
-    seq(
-      field("namespace", $.random_events_ident),
-      "=",
-      "{",
-      repeat(
-        seq(
-          field("argument", $.number),
-          "=",
-          choice($.string, $.identifier, $.number),
-        ),
-      ),
-      "}",
-    ),
-  on_action_country_statement: ($) =>
-    choice(
-      $.on_action_events_block,
-      $.on_action_random_events_block,
-      $.country_effect,
-    ),
-  identifier: ($) => /[a-zA-Z0-9][a-zA-Z0-9\.\_]*/, // catch all needs to be at the end
-  scripted_argument: ($) => /\$.+\$/,
-  // _error_recovery: ($) => prec(-5, /[^{}]+/), // TODO: in the future, can error-guard some phrases by using this as an alternative in choice()
-} /* end of rules */;
-
 module.exports = grammar({
-  name: "eu4mod",
+  name: 'eu4mod',
 
-  rules: { ...rules, ...grammar_gui },
-  extras: ($) => [
+  extras: $ => [
     $.comment,
-    $.scripted_argument,
-    /[\s\f\uFEFF\u2060\u200B]|\r?\n/,
+    /[\s\f\uFEFF\u2060\u200B]|[\r?\n]/,
   ],
-  conflicts: ($) => [
-    // ignore unresolved conflicts for these pairs they should only be ambiguous
-    // inside arbitrary scope changes like "ROOT" (which can be a province or
-    // country scope depending on where it is -- including in complex ways like
-    // on various on_actions)
-    [$.country_effect, $.province_effect],
-    [$.country_effect_statement_simple, $.province_effect_statement_simple],
-    [$.country_trigger_statement, $.province_trigger_statement],
-    [$.country_trigger_statement_simple, $.province_trigger_statement_simple],
-    [$.country_random_list, $.province_random_list],
-    [$.country_effect_statement_flag, $.province_effect_statement_flag],
-    [$.country_trigger_statement_flag, $.province_trigger_statement_flag],
-    [$.country_effect_trigger_switch, $.province_effect_trigger_switch],
-    [$.country_effect_scripted_effect, $.province_effect_scripted_effect],
-    [$.country_trigger_scripted_trigger, $.province_trigger_scripted_trigger],
-    [$.country_modifier_block, $.province_modifier_block],
-    [$.country_calc_true_if, $.province_calc_true_if],
-    // [$.country_define_scripted_effect, $.province_define_scripted_effect],
-    [$.country_random, $.province_random],
-    [$.country_custom_trigger_tooltip, $.province_custom_trigger_tooltip],
-    [$.country_export_to_variable, $.province_export_to_variable],
-    [$.country_math_variable, $.province_math_variable],
-    [$.country_trigger_variable, $.province_trigger_variable],
-    [$.country_effect_change_scope, $.province_effect_change_scope],
-    [$.country_custom_button_statement, $.province_custom_button_statement],
-    [
-      $.country_variable_arithmetic_trigger,
-      $.province_variable_arithmetic_trigger,
-    ],
+
+  inline: $ => [
+    $._dot_mod_statement,
+    $._gfx_types_definition
   ],
-  // reserved: ($) => ["limit", "if", "else_if", "else"], // TODO: more reserved?
+
+  rules: {
+
+    file: $ => choice(
+      $.dot_mod,
+      $.dot_gfx,
+      $.dot_gui,
+      $.dot_yml
+    ),
+
+
+    //===============================================//
+    //       MOD -> Rules for *.mod files :          //
+    //===============================================//
+
+    dot_mod: $ => repeat1(
+      $._dot_mod_statement
+    ),
+
+    _dot_mod_statement: $ => choice(
+      $._statement_name,
+      $._statement_mod_path,
+      $._statement_mod_archive,
+      $._statement_mod_remote_file_id,
+      $._statement_mod_version,
+      $._statement_mod_picture,
+      $._statement_mod_supported_version,
+      $._statement_mod_replace_path,
+      $._statement_mod_tags,
+      $._statement_mod_dependencies
+    ),
+
+    //===============================================//
+    //        GFX -> Rules for *.gfx files :         //
+    //===============================================//
+
+    dot_gfx: $ => repeat1(
+        $._gfx_types_definition
+    ),
+
+    _gfx_types_definition: $ => alias(choice(
+      $._spriteTypes,
+      $._objectTypes,
+      $._bitmapfonts
+    ), $.types_definition),
+
+    //===============================================//
+    //        GUI -> Rules for *.gui files :         //
+    //===============================================//
+
+    dot_gui: $ => repeat1(
+        $._gui_types_definition
+    ),
+
+    _gui_types_definition: $ => alias(choice(
+      $._guiTypes,
+    ), $.types_definition),
+
+    //===============================================//
+    //        YML -> Rules for *.yml files :         //
+    //===============================================//
+
+    dot_yml: $ => repeat1(seq(
+      $.localization_language_name,
+      $.assign_colon,
+      repeat1(token.immediate(/[ \s]*[\r?\n]/)),
+      repeat(seq(
+        token.immediate(' '),
+        $._localization_entry,
+        repeat1(token.immediate(/[ \s]*[\r?\n]/))
+      )),
+      repeat(choice(
+        token.immediate(' '),
+        token.immediate(/[ \s]/),
+        token.immediate(/[\r?\n]/)
+      ))
+    )),
+
+    localization_language_name: $ => token(seq(
+      'l_',
+      /[a-z]+/
+    )),
+
+    _localization_entry: $ => seq(
+      alias(token.immediate(/[a-zA-Z0-9_\.-]+/), $.identifier),
+      $.assign_colon,
+      optional(alias(token.immediate(/[0-9]+/), $.index)),
+      token.immediate(' '),
+      $.localization_string,
+      repeat(token.immediate(' ')),
+      optional(prec(2, $.comment))
+    ),
+
+    localization_string: $ => prec.left(seq(
+      token.immediate('"'),
+      repeat(choice(
+        $.localization_string,
+        $._localization_formatting,
+        $._localization_scope,
+        $._localization_icon,
+        alias(token.immediate('¤'), $.localization_gold),
+        alias(token.immediate(/\\[n\\\"]/), $.localization_color),
+        alias(token.immediate(/\#/), $.formatting_boundary),
+        alias(token.immediate(/\#Channel[a-zA-Z\/]+/), $.formatting_boundary),
+        alias(token.immediate(/§[a-zA-Z!]/), $.localization_color),
+        token.immediate(/[^\[\[\\$§£¤\"\#\r\n]+/)
+      )),
+      token.immediate('"'),
+    )),
+
+    _localization_icon: $ => prec.right(seq(
+      alias(token.immediate('£'), $.formatting_boundary),
+      alias(token.immediate(/[A-Za-z0-9_]+/), $.formatting_icon),
+      optional(alias(token.immediate('£'), $.formatting_boundary))
+    )),
+
+    _localization_scope: $ => seq(
+      alias(token.immediate(/\[/), $.formatting_boundary),
+      alias(token.immediate(seq(
+        /[a-zA-Z0-9_@]+/,
+        repeat(seq(
+          /\./,
+          /[a-zA-Z0-9_]+/
+        ))
+      )), $.formatting_variable),
+      alias(token.immediate(/\]/), $.formatting_boundary)
+    ),
+
+    _localization_formatting: $ => seq(
+        alias(token.immediate('$'), $.formatting_boundary),
+        alias(token.immediate(/[A-Za-z0-9_]+/), $.formatting_variable),
+        optional(seq(
+          alias(token.immediate('|'), $.formatting_delimiter),
+          optional($.formatting_rule)
+        )),
+        alias(token.immediate('$'), $.formatting_boundary)
+      ),
+
+    formatting_rule: $ => repeat1(token.immediate(choice(
+        '%',
+        '*',
+        '=',
+        /[0-9]/,
+        /[a-zA-Z]/,
+        '+',
+        '-'
+    ))),
+
+    //---------//
+    // TYPES :
+    //---------//
+
+    // ----------
+    // GFX types :
+
+    // spriteTypes
+
+    _spriteTypes: $ => seq(
+      alias('spriteTypes', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._spriteTypes_block
+      ))
+    ),
+
+    _spriteTypes_block: $ => seq(
+      '{',
+      repeat(choice(
+        $._spriteTypes_statement,
+        $._spriteTypes_type
+      )),
+      '}'
+    ),
+
+    _spriteTypes_statement: $ => alias(choice(
+      $._statement_gfx_cursor_offset
+    ), $.statement),
+
+    _spriteTypes_type: $ => alias(choice(
+      $._spriteType,
+      $._textSpriteType,
+      $._corneredTileSpriteType,
+      $._maskedShieldType,
+      $._frameAnimatedSpriteType,
+      $._progressbartype,
+      $._PieChartType,
+      $._LineChartType
+    ), $.type_definition),
+
+    // objectTypes
+
+    _objectTypes: $ => seq(
+      alias('objectTypes', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._objectTypes_block
+      ))
+    ),
+
+    _objectTypes_block: $ => seq(
+      '{',
+      repeat($._objectTypes_type),
+      '}'
+    ),
+
+    _objectTypes_type: $ => alias(choice(
+      $._animatedmaptext,
+      $._pdxmesh,
+      $._pdxparticle,
+      $._arrowType,
+      $._tradeRouteType
+    ), $.type_definition),
+
+    // bitmapfonts
+
+    _bitmapfonts: $ => seq(
+      alias('bitmapfonts', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._bitmapfonts_block
+      ))
+    ),
+
+    _bitmapfonts_block: $ => seq(
+      '{',
+      repeat($._bitmapfonts_type),
+      '}'
+    ),
+
+    _bitmapfonts_type: $ => alias(choice(
+      $._bitmapfont,
+      $._textcolors
+    ), $.type_definition),
+
+    // ----------
+    // GUI types :
+
+    // guiTypes
+
+    _guiTypes: $ => seq(
+      alias('guiTypes', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._guiTypes_block
+      ))
+    ),
+
+    _guiTypes_block: $ => seq(
+      '{',
+      repeat(choice(
+        $._guiTypes_type,
+        $._if_resolution_block)),
+      '}'
+    ),
+
+    _guiTypes_type: $ => alias(choice(
+      $._windowType,
+      $._textBoxType,
+      $._instantTextBoxType,
+      $._iconType,
+      $._scrollbarType,
+      $._smoothListboxType,
+      $._positionType,
+      $._guiButtonType,
+      $._eu3dialogtype,
+      $._listBoxType,
+      $._overlappingElementsBoxType,
+      $._extendedScrollbarType,
+      $._containerWindowType
+    ), $.type_definition),
+
+    //---------//
+    // TYPE :
+    //---------//
+
+    // ----------
+    // GFX type :
+
+    // spriteType
+
+    _spriteType: $ => seq(
+      alias('spriteType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._spriteType_block
+      ))
+    ),
+
+    _spriteType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_textureFile,
+          $._statement_gfx_noOfFrames,
+          $._statement_gfx_overlay_frames_per_row,
+          $._statement_gfx_overlay_rows,
+          $._statement_gfx_effectFile,
+          $._statement_gfx_clicksound,
+          $._statement_gfx_norefcount,
+          $._statement_gfx_legacy_lazy_load,
+          $._statement_gfx_animation,
+          $._statement_gfx_alwaystransparent,
+          $._statement_gfx_transparencecheck,
+          $._statement_gfx_loadType,
+          $._statement_gfx_alphamaskfile
+        ), $.statement)),
+      '}'
+    ),
+
+    // textSpriteType
+
+    _textSpriteType: $ => seq(
+      alias('textSpriteType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._textSpriteType_block
+      ))
+    ),
+
+    _textSpriteType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_textureFile,
+          $._statement_gfx_noOfFrames,
+          $._statement_gfx_overlay_frames_per_row,
+          $._statement_gfx_overlay_rows,
+          $._statement_gfx_loadType,
+          $._statement_gfx_transparencecheck,
+          $._statement_gfx_alwaystransparent,
+          $._statement_gfx_effectFile,
+          $._statement_gfx_clicksound
+        ), $.statement)),
+      '}'
+    ),
+
+    // corneredTileSpriteType
+
+    _corneredTileSpriteType: $ => seq(
+      alias('corneredTileSpriteType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._corneredTileSpriteType_block
+      ))
+    ),
+
+    _corneredTileSpriteType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_size_xy,
+          $._statement_gfx_textureFile,
+          $._statement_gfx_borderSize,
+          $._statement_gfx_alwaystransparent,
+          $._statement_gfx_legacy_lazy_load,
+          $._statement_gfx_noOfFrames,
+          $._statement_gfx_norefcount,
+          $._statement_gfx_loadType,
+          $._statement_gfx_effectFile
+        ), $.statement)),
+      '}'
+    ),
+
+    // maskedShieldType
+
+    _maskedShieldType: $ => seq(
+      alias('maskedShieldType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._maskedShieldType_block
+      ))
+    ),
+
+    _maskedShieldType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_textureFile1,
+          $._statement_gfx_textureFile2,
+          $._statement_gfx_textureFile3,
+          $._statement_gfx_noOfFrames,
+          $._statement_gfx_effectFile,
+          $._statement_gfx_overlay_frames_per_row,
+          $._statement_gfx_overlay_rows,
+          $._statement_gfx_transparencecheck
+        ), $.statement)),
+      '}'
+    ),
+
+    // animatedmaptext
+
+    _animatedmaptext: $ => seq(
+      alias('animatedmaptext', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._animatedmaptext_block
+      ))
+    ),
+
+    _animatedmaptext_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_speed,
+          $._statement_gfx_textblock
+        ), $.statement)),
+      '}'
+    ),
+
+    // textcolors
+
+    _textcolors: $ => seq(
+      alias('textcolors', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._textcolors_block
+      ))
+    ),
+
+    _textcolors_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_textcolors,
+        ), $.statement)),
+      '}'
+    ),
+
+    // bitmapfont
+
+    _bitmapfont: $ => seq(
+      alias('bitmapfont', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._bitmapfont_block
+      ))
+    ),
+
+    _bitmapfont_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._textcolors,
+          $._statement_gfx_name,
+          $._statement_gfx_path,
+          $._statement_gfx_bitmapfont_color,
+          $._statement_gfx_bitmapfont_border_color,
+          $._statement_gfx_cursor_offset,
+          $._statement_gfx_effect_bool,
+        ), $.statement)),
+      '}'
+    ),
+
+    // frameAnimatedSpriteType
+
+    _frameAnimatedSpriteType: $ => seq(
+      alias('frameAnimatedSpriteType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._frameAnimatedSpriteType_block
+      ))
+    ),
+
+    _frameAnimatedSpriteType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_textureFile,
+          $._statement_gfx_noOfFrames,
+          $._statement_gfx_overlay_frames_per_row,
+          $._statement_gfx_overlay_rows,
+          $._statement_gfx_effectFile,
+          $._statement_gfx_animation_rate_fps,
+          $._statement_gfx_looping,
+          $._statement_gfx_play_on_show,
+          $._statement_gfx_pause_on_loop,
+          $._statement_gfx_alwaystransparent,
+          $._statement_gfx_transparencecheck,
+          $._statement_gfx_loadType
+        ), $.statement)),
+      '}'
+    ),
+
+    // progressbartype
+
+    _progressbartype: $ => seq(
+      alias('progressbartype', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._progressbartype_block
+      ))
+    ),
+
+    _progressbartype_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_color,
+          $._statement_gfx_colortwo,
+          $._statement_gfx_textureFile1,
+          $._statement_gfx_textureFile2,
+          $._statement_gfx_size_xy,
+          $._statement_gfx_effectFile,
+          $._statement_gfx_horizontal,
+          $._statement_gfx_loadType
+        ), $.statement)),
+      '}'
+    ),
+
+    // pdxmesh
+
+    _pdxmesh: $ => seq(
+      alias('pdxmesh', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._pdxmesh_block
+      ))
+    ),
+
+    _pdxmesh_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_pdxmesh_animation,
+          $._statement_gfx_pdxmesh_meshsettings,
+          $._statement_gfx_name,
+          $._statement_gfx_file,
+          $._statement_gfx_scale,
+          $._statement_gfx_cull_distance
+        ), $.statement)),
+      '}'
+    ),
+
+    // pdxparticle
+
+    _pdxparticle: $ => seq(
+      alias('pdxparticle', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._pdxparticle_block
+      ))
+    ),
+
+    _pdxparticle_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_type,
+          $._statement_gfx_scale
+        ), $.statement)),
+      '}'
+    ),
+
+    // arrowType
+
+    _arrowType: $ => seq(
+      alias('arrowType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._arrowType_block
+      ))
+    ),
+
+    _arrowType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_texture,
+          $._statement_gfx_normal,
+          $._statement_gfx_specular,
+          $._statement_gfx_effect
+        ), $.statement)),
+      '}'
+    ),
+
+    // tradeRouteType
+
+    _tradeRouteType: $ => seq(
+      alias('tradeRouteType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._tradeRouteType_block
+      ))
+    ),
+
+    _tradeRouteType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_textureFile,
+          $._statement_gfx_textureFile2,
+          $._statement_gfx_textureFile3,
+          $._statement_gfx_effect,
+          $._statement_gfx_cull_distance
+        ), $.statement)),
+      '}'
+    ),
+
+    // PieChartType
+
+    _PieChartType: $ => seq(
+      alias('PieChartType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._PieChartType_block
+      ))
+    ),
+
+    _PieChartType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_size_integer
+        ), $.statement)),
+      '}'
+    ),
+
+    // LineChartType
+
+    _LineChartType: $ => seq(
+      alias('LineChartType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._LineChartType_block
+      ))
+    ),
+
+    _LineChartType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_gfx_name,
+          $._statement_gfx_size_xy,
+          $._statement_gfx_linewidth
+        ), $.statement)),
+      '}'
+    ),
+
+
+    // ----------
+    // GUI type :
+
+    // windowType
+
+    _windowType: $ => seq(
+      alias(/[Ww]indowType/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._windowType_block
+      ))
+    ),
+
+    _windowType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._if_resolution,
+          $._windowType,
+          $._listBoxType,
+          $._editBoxType,
+          $._iconType,
+          $._instantTextBoxType,
+          $._smoothListboxType,
+          $._guiButtonType,
+          $._overlappingElementsBoxType,
+          $._browserType,
+          $._checkboxType,
+          $._scrollbarType,
+          $._textBoxType,
+          $._gridBoxType,
+          $._positionType
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_background,
+          $._statement_gui_position,
+          $._statement_gui_size,
+          $._statement_gui_moveable,
+          $._statement_gui_orientation,
+          $._statement_gui_dontRender,
+          $._statement_gui_horizontalBorder,
+          $._statement_gui_verticalBorder,
+          $._statement_gui_fullScreen,
+          $._statement_gui_upsound,
+          $._statement_gui_downsound,
+          $._statement_gui_show_position,
+          $._statement_gui_hide_position,
+          $._statement_gui_animation_type,
+          $._statement_gui_animation_time,
+          $._statement_gui_click_to_front,
+          $._statement_gui_priority
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // listBoxType
+
+    _listBoxType: $ => seq(
+      alias(/list[Bb]oxType/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._listBoxType_block
+      ))
+    ),
+
+    _listBoxType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._if_resolution,
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_background,
+          $._statement_gui_position,
+          $._statement_gui_orientation,
+          $._statement_gui_horizontal,
+          $._statement_gui_priority,
+          $._statement_gui_size,
+          $._statement_gui_borderSize,
+          $._statement_gui_scrollbartype,
+          $._statement_gui_scrollbar_side,
+          $._statement_gui_alwaystransparent,
+          $._statement_gui_spacing,
+          $._statement_gui_offset,
+          $._statement_gui_step
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // editBoxType
+
+    _editBoxType: $ => seq(
+      alias('editBoxType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._editBoxType_block
+      ))
+    ),
+
+    _editBoxType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position,
+          $._statement_gui_textureFile,
+          $._statement_gui_font,
+          $._statement_gui_borderSize,
+          $._statement_gui_cursor,
+          $._statement_gui_size,
+          $._statement_gui_text,
+          $._statement_gui_orientation,
+          $._statement_gui_instantTextBoxType,
+          $._statement_gui_ignore_tab_navigation,
+          $._statement_gui_use_special_chars
+        ), $.statement)),
+      '}'
+    ),
+
+    // instantTextBoxType
+
+    _instantTextBoxType: $ => seq(
+      alias(/instant[Tt]ext[Bb]oxType/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._instantTextBoxType_block
+      ))
+    ),
+
+    _instantTextBoxType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._if_resolution,
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position,
+          $._statement_gui_textureFile,
+          $._statement_gui_font,
+          $._statement_gui_text,
+          $._statement_gui_pdx_tooltip,
+          $._statement_gui_pdx_tooltip_delayed,
+          $._statement_gui_borderSize,
+          $._statement_gui_maxWidth,
+          $._statement_gui_maxHeight,
+          $._statement_gui_format,
+          $._statement_gui_fixedsize,
+          $._statement_gui_orientation,
+          $._statement_gui_truncate,
+          $._statement_gui_fixedsize,
+          $._statement_gui_alwaystransparent,
+          $._statement_gui_hint_tag,
+          $._statement_gui_scrollbartype,
+          $._statement_gui_text_color_code
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // textBoxType
+
+    _textBoxType: $ => seq(
+      alias('textBoxType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._textBoxType_block
+      ))
+    ),
+
+    _textBoxType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position,
+          $._statement_gui_orientation,
+          $._statement_gui_textureFile,
+          $._statement_gui_borderSize,
+          $._statement_gui_maxWidth,
+          $._statement_gui_maxHeight,
+          $._statement_gui_text,
+          $._statement_gui_font,
+          $._statement_gui_format
+        ), $.statement)),
+      '}'
+    ),
+
+    // iconType
+
+    _iconType: $ => seq(
+      alias('iconType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._iconType_block
+      ))
+    ),
+
+    _iconType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._if_resolution,
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_spriteType,
+          $._statement_gui_position,
+          $._statement_gui_orientation,
+          $._statement_gui_rotation,
+          $._statement_gui_frame,
+          $._statement_gui_alwaystransparent,
+          $._statement_gui_scale,
+          $._statement_gui_hint_tag,
+          $._statement_gui_tooltip,
+          $._statement_gui_tooltipText,
+          $._statement_gui_delayedTooltipText,
+          $._statement_gui_pdx_tooltip,
+          $._statement_gui_pdx_tooltip_delayed,
+          $._statement_gui_quadTextureSprite,
+          $._statement_gui_buttonMesh,
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // scrollbarType
+
+    _scrollbarType: $ => seq(
+      alias('scrollbarType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._scrollbarType_block
+      ))
+    ),
+
+    _scrollbarType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._guiButtonType,
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_slider,
+          $._statement_gui_track,
+          $._statement_gui_leftbutton,
+          $._statement_gui_rightbutton,
+          $._statement_gui_size,
+          $._statement_gui_position,
+          $._statement_gui_priority,
+          $._statement_gui_borderSize,
+          $._statement_gui_maxValue,
+          $._statement_gui_minValue,
+          $._statement_gui_stepSize,
+          $._statement_gui_startValue,
+          $._statement_gui_horizontal,
+          $._statement_gui_scroll_speed,
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // guiButtonType
+
+    _guiButtonType: $ => seq(
+      alias('guiButtonType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._guiButtonType_block
+      ))
+    ),
+
+    _guiButtonType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._if_resolution,
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_quadTextureSprite,
+          $._statement_gui_position,
+          $._statement_gui_orientation,
+          $._statement_gui_parent,
+          $._statement_gui_tooltip,
+          $._statement_gui_tooltipText,
+          $._statement_gui_pdx_tooltip,
+          $._statement_gui_pdx_tooltip_delayed,
+          $._statement_gui_delayedTooltipText,
+          $._statement_gui_buttonText,
+          $._statement_gui_buttonFont,
+          $._statement_gui_shortcut,
+          $._statement_gui_extra_shortcut,
+          $._statement_gui_size,
+          $._statement_gui_borderSize,
+          $._statement_gui_scale,
+          $._statement_gui_max_height,
+          $._statement_gui_min_height,
+          $._statement_gui_spriteType,
+          $._statement_gui_clicksound,
+          $._statement_gui_no_clicksound,
+          $._statement_gui_hint_tag,
+          $._statement_gui_frame,
+          $._statement_gui_text,
+          $._statement_gui_font,
+          $._statement_gui_web_link,
+          $._statement_gui_format,
+          $._statement_gui_alwaystransparent
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // smoothListboxType
+
+    _smoothListboxType: $ => seq(
+      alias(/smoothList[Bb]oxType/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._smoothListboxType_block
+      ))
+    ),
+
+    _smoothListboxType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._if_resolution,
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position,
+          $._statement_gui_background,
+          $._statement_gui_size,
+          $._statement_gui_orientation,
+          $._statement_gui_horizontal,
+          $._statement_gui_spacing,
+          $._statement_gui_scrollbartype,
+          $._statement_gui_borderSize,
+          $._statement_gui_offset
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // if_resolution
+
+    _if_resolution: $ => seq(
+      alias('if_resolution', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        repeat(choice(
+          alias(choice(
+            $._statement_gui_spriteType,
+            $._statement_gui_position,
+            $._statement_gui_size,
+            $._statement_gui_min_height,
+            $._statement_gui_maxHeight,
+            $._statement_gui_max_height,
+            $._statement_gui_maxWidth,
+            $._statement_gui_quadTextureSprite,
+            $._statement_gui_buttonText,
+            $._statement_gui_show_position,
+            $._statement_gui_hide_position,
+          ), $.statement),
+          alias(choice(
+            $._listBoxType,
+            $._editBoxType,
+            $._iconType,
+            $._instantTextBoxType,
+            $._smoothListboxType,
+            $._guiButtonType,
+            $._overlappingElementsBoxType,
+            $._browserType,
+            $._checkboxType,
+            $._scrollbarType,
+            $._textBoxType,
+            $._gridBoxType,
+            $._positionType
+          ), $.type_definition),
+        )),
+        '}'
+      ))
+    ),
+
+    // if_resolution_block
+
+    _if_resolution_block: $ => seq(
+      alias('if_resolution', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        repeat(choice(
+          alias(choice(
+            $._listBoxType,
+            $._editBoxType,
+            $._iconType,
+            $._instantTextBoxType,
+            $._smoothListboxType,
+            $._guiButtonType,
+            $._overlappingElementsBoxType,
+            $._browserType,
+            $._checkboxType,
+            $._scrollbarType,
+            $._textBoxType,
+            $._gridBoxType,
+            $._positionType
+          ), $.type_definition),
+          alias(choice(
+            $._statement_gui_min_height,
+            $._statement_gui_maxHeight,
+            $._statement_gui_max_height,
+            $._statement_gui_maxWidth,
+            $._statement_name,
+            $._statement_gui_background,
+            $._statement_gui_position,
+            $._statement_gui_size,
+            $._statement_gui_moveable,
+            $._statement_gui_orientation,
+            $._statement_gui_dontRender,
+            $._statement_gui_horizontalBorder,
+            $._statement_gui_verticalBorder,
+            $._statement_gui_fullScreen,
+            $._statement_gui_upsound,
+            $._statement_gui_downsound,
+            $._statement_gui_show_position,
+            $._statement_gui_hide_position,
+            $._statement_gui_animation_type,
+            $._statement_gui_animation_time,
+            $._statement_gui_click_to_front,
+            $._statement_gui_priority,
+            $._statement_gui_spriteType,
+            $._statement_gui_position,
+            $._statement_gui_size,
+            $._statement_gui_min_height,
+            $._statement_gui_maxHeight,
+            $._statement_gui_max_height,
+            $._statement_gui_maxWidth,
+            $._statement_gui_quadTextureSprite,
+            $._statement_gui_buttonText,
+            $._statement_gui_show_position,
+            $._statement_gui_hide_position,
+          ), $.statement)
+        )),
+        '}'
+      ))
+    ),
+
+
+
+    // positionType
+
+    _positionType: $ => seq(
+      alias('positionType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._positionType_block
+      ))
+    ),
+
+    _positionType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position
+        ), $.statement)),
+      '}'
+    ),
+
+      // overlappingElementsBoxType
+
+      _overlappingElementsBoxType: $ => seq(
+        alias(/[Oo]verlappingElementsBoxType/, $.identifier),
+        optional(seq(
+          $.assign_equal,
+          $._overlappingElementsBoxType_block
+        ))
+      ),
+
+      _overlappingElementsBoxType_block: $ => seq(
+        '{',
+        repeat(
+          alias(choice(
+            $._statement_name,
+            $._statement_gui_position,
+            $._statement_gui_size,
+            $._statement_gui_orientation,
+            $._statement_gui_format,
+            $._statement_gui_spacing,
+            $._statement_gui_hint_tag
+          ), $.statement)),
+        '}'
+      ),
+
+      // browserType
+
+      _browserType: $ => seq(
+        alias('browserType', $.identifier),
+        optional(seq(
+          $.assign_equal,
+          $._browserType_block
+        ))
+      ),
+
+      _browserType_block: $ => seq(
+        '{',
+        repeat(
+          alias(choice(
+            $._statement_name,
+            $._statement_gui_position,
+            $._statement_gui_size,
+            $._statement_gui_spriteType
+          ), $.statement)),
+        '}'
+      ),
+
+      // eu3dialogtype
+
+      _eu3dialogtype: $ => seq(
+        alias('eu3dialogtype', $.identifier),
+        optional(seq(
+          $.assign_equal,
+          $._eu3dialogtype_block
+        ))
+      ),
+
+      _eu3dialogtype_block: $ => seq(
+        '{',
+        repeat(choice(
+          alias(choice(
+            $._windowType,
+            $._iconType,
+            $._instantTextBoxType,
+            $._guiButtonType,
+            $._shieldtype,
+            $._checkboxType,
+            $._listBoxType,
+            $._scrollbarType,
+            $._overlappingElementsBoxType,
+            $._editBoxType
+          ), $.type_definition),
+          alias(choice(
+            $._statement_name,
+            $._statement_gui_background,
+            $._statement_gui_position,
+            $._statement_gui_orientation,
+            $._statement_gui_size,
+            $._statement_gui_moveable,
+            $._statement_gui_dontRender,
+            $._statement_gui_horizontalBorder,
+            $._statement_gui_verticalBorder,
+            $._statement_gui_fullScreen
+          ), $.statement)
+        )),
+        '}'
+      ),
+
+    // shieldtype
+
+    _shieldtype: $ => seq(
+      alias('shieldtype', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._shieldtype_block
+      ))
+    ),
+
+    _shieldtype_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position,
+          $._statement_gui_spriteType
+        ), $.statement)),
+      '}'
+    ),
+
+    // checkboxType
+
+    _checkboxType: $ => seq(
+      alias('checkboxType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._checkboxType_block
+      ))
+    ),
+
+    _checkboxType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._if_resolution,
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position,
+          $._statement_gui_orientation,
+          $._statement_gui_quadTextureSprite,
+          $._statement_gui_tooltip,
+          $._statement_gui_tooltipText,
+          $._statement_gui_delayedTooltipText,
+          $._statement_gui_pdx_tooltip,
+          $._statement_gui_pdx_tooltip_delayed,
+          $._statement_gui_buttonText,
+          $._statement_gui_buttonFont,
+          $._statement_gui_alwaystransparent,
+          $._statement_gui_shortcut
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // gridBoxType
+
+    _gridBoxType: $ => seq(
+      alias('gridBoxType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._gridBoxType_block
+      ))
+    ),
+
+    _gridBoxType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position,
+          $._statement_gui_size_width_height,
+          $._statement_gui_format,
+          $._statement_gui_slotsize,
+          $._statement_gui_max_slots_horizontal,
+          $._statement_gui_max_slots_vertical
+        ), $.statement)),
+      '}'
+    ),
+
+    // extendedScrollbarType
+
+    _extendedScrollbarType: $ => seq(
+      alias('extendedScrollbarType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._extendedScrollbarType_block
+      ))
+    ),
+
+    _extendedScrollbarType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._slider,
+          $._track,
+          $._decreaseButton,
+          $._increaseButton,
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position,
+          $._statement_gui_size_width_height,
+          $._statement_gui_startValue,
+          $._statement_gui_tileSize,
+          $._statement_gui_maxValue,
+          $._statement_gui_minValue,
+          $._statement_gui_stepSize,
+          $._statement_gui_horizontal_bool
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // slider
+
+    _slider: $ => seq(
+      alias('slider', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._slider_block
+      ))
+    ),
+
+    _slider_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_quadTextureSprite,
+          $._statement_gui_position,
+          $._statement_gui_pdx_tooltip,
+          $._statement_gui_pdx_tooltip_delayed
+        ), $.statement)),
+      '}'
+    ),
+
+    // track
+
+    _track: $ => seq(
+      alias('track', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._track_block
+      ))
+    ),
+
+    _track_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_quadTextureSprite,
+          $._statement_gui_position,
+          $._statement_gui_alwaystransparent,
+          $._statement_gui_pdx_tooltip,
+          $._statement_gui_pdx_tooltip_delayed
+        ), $.statement)),
+      '}'
+    ),
+
+    // decreaseButton
+
+    _decreaseButton: $ => seq(
+      alias('decreaseButton', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._decreaseButton_block
+      ))
+    ),
+
+    _decreaseButton_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_quadTextureSprite,
+          $._statement_gui_position,
+          $._statement_gui_pdx_tooltip,
+          $._statement_gui_pdx_tooltip_delayed
+        ), $.statement)),
+      '}'
+    ),
+
+    // increaseButton
+
+    _increaseButton: $ => seq(
+      alias('increaseButton', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._increaseButton_block
+      ))
+    ),
+
+    _increaseButton_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_quadTextureSprite,
+          $._statement_gui_position,
+          $._statement_gui_pdx_tooltip,
+          $._statement_gui_pdx_tooltip_delayed
+        ), $.statement)),
+      '}'
+    ),
+
+    // containerWindowType
+
+    _containerWindowType: $ => seq(
+      alias('containerWindowType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._containerWindowType_block
+      ))
+    ),
+
+    _containerWindowType_block: $ => seq(
+      '{',
+      repeat(choice(
+        alias(choice(
+          $._containerWindowType,
+          $._background,
+          $._buttonType,
+          $._instantTextBoxType,
+          $._iconType,
+          $._extendedScrollbarType,
+          $._gridBoxType,
+          $._smoothListboxType,
+          $._editBoxType
+        ), $.type_definition),
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_position,
+          $._statement_gui_show_position,
+          $._statement_gui_show_animation_type,
+          $._statement_gui_hide_animation_type,
+          $._statement_gui_animation_time,
+          $._statement_gui_orientation,
+          $._statement_gui_size_width_height,
+          $._statement_gui_origo,
+          $._statement_gui_fade_time,
+          $._statement_gui_fade_type,
+          $._statement_gui_click_to_front,
+          $._statement_gui_moveable,
+          $._statement_gui_margin,
+          $._statement_gui_verticalScrollbar
+        ), $.statement)
+      )),
+      '}'
+    ),
+
+    // background
+
+    _background: $ => seq(
+      alias('background', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._background_block
+      ))
+    ),
+
+    _background_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_spriteType,
+          $._statement_gui_quadTextureSprite,
+          $._statement_gui_alwaystransparent
+        ), $.statement)),
+      '}'
+    ),
+
+    // buttonType
+
+    _buttonType: $ => seq(
+      alias(/[Bb]utton[Tt]ype/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._buttonType_block
+      ))
+    ),
+
+    _buttonType_block: $ => seq(
+      '{',
+      repeat(
+        alias(choice(
+          $._statement_name,
+          $._statement_gui_quadTextureSprite,
+          $._statement_gui_position,
+          $._statement_gui_orientation,
+          $._statement_gui_buttonText,
+          $._statement_gui_buttonFont,
+          $._statement_gui_tooltip,
+          $._statement_gui_tooltipText,
+          $._statement_gui_delayedTooltipText,
+          $._statement_gui_pdx_tooltip,
+          $._statement_gui_pdx_tooltip_delayed,
+          $._statement_gui_clicksound,
+          $._statement_gui_shortcut,
+          $._statement_gui_spriteType,
+          $._statement_gui_size
+        ), $.statement)),
+      '}'
+    ),
+
+
+
+    //==============================//
+    //          STATEMENTS          //
+    //==============================//
+
+    //-------------------------------------//
+    //  Commons statements [_statement_X]  //
+    //-------------------------------------//
+
+    _statement_name: $ => seq(
+      alias('name', $.name_identifier),
+      optional(seq(
+        $.assign_equal,
+        alias($.string, $.name_value)
+      ))
+    ),
+
+    _statement_string: $ => seq(
+      $.identifier,
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_xy_integer: $ => choice(
+      seq($._entry_x_integer, optional('ยง'), $._entry_y_integer),
+      seq($._entry_y_integer, optional('ยง'), $._entry_x_integer)
+    ),
+
+
+    _entry_x_integer: $ => seq(
+      alias('x', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.integer
+      ))
+    ),
+
+    _entry_y_integer: $ => seq(
+      alias('y', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.integer
+      ))
+    ),
+
+    _statement_xy_float: $ => choice(
+      seq($._entry_x_float, optional('ยง'), $._entry_y_float),
+      seq($._entry_y_float, optional('ยง'), $._entry_x_float)
+    ),
+
+
+    _entry_x_float: $ => seq(
+      alias('x', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.float
+      ))
+    ),
+
+    _entry_y_float: $ => seq(
+      alias('y', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.float
+      ))
+    ),
+
+    _statement_width_height_integer: $ => choice(
+      seq($._entry_width_integer, $._entry_height_integer),
+      seq($._entry_height_integer, $._entry_width_integer)
+    ),
+
+    _entry_width_integer: $ => seq(
+      alias('width', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.integer,
+        optional(choice('%', '%%'))
+      ))
+    ),
+
+    _entry_height_integer: $ => seq(
+      alias('height', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.integer,
+        optional(alias(choice('%', '%%'), $.keyword))
+      ))
+    ),
+
+    _statement_margin_integer: $ => repeat1(choice(
+      $._entry_top_integer,
+      $._entry_left_integer,
+      $._entry_bottom_integer,
+      $._entry_right_integer
+    )),
+
+    _entry_top_integer: $ => seq(
+      alias('top', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.integer
+      ))
+    ),
+
+    _entry_left_integer: $ => seq(
+      alias('left', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.integer
+      ))
+    ),
+
+    _entry_bottom_integer: $ => seq(
+      alias('bottom', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.integer
+      ))
+    ),
+
+    _entry_right_integer: $ => seq(
+      alias('right', $.keyword),
+      optional(seq(
+        $.assign_equal,
+        $.integer
+      ))
+    ),
+
+
+    //-------------------------------------//
+    //  MOD statements [_statement_mod_X]  //
+    //-------------------------------------//
+
+    _statement_mod_path: $ => seq(
+      alias('path', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_mod_archive: $ => seq(
+      alias('archive', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq('"', /[^\"\n]*/, '.zip"')), $.string)
+      ))
+    ),
+
+    _statement_mod_remote_file_id: $ => seq(
+      alias('remote_file_id', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq('"', /\d*/, '"')), $.string)
+      ))
+    ),
+
+    _statement_mod_version: $ => seq(
+      alias('version', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[0-9]+/,
+          repeat(seq(
+            '.',
+            /[0-9]+/)),
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_mod_picture: $ => seq(
+      alias('picture', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]*/,
+          choice('.jpg', '.png'),
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_mod_supported_version: $ => seq(
+      alias('supported_version', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[0-9]+/,
+          '.',
+          /[0-9]+/,
+          optional(token(seq(
+            '.',
+            choice(/[0-9]+/, '*'),
+            optional(token(seq(
+              '.',
+              choice(/[0-9]+/, '*'),
+            ))),
+          ))),
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_mod_replace_path: $ => seq(
+      alias('replace_path', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._mod_replace_path_folder
+      ))
+    ),
+
+    _mod_replace_path_folder: $ => alias(token(
+      seq(
+        '"',
+        choice(
+          'common', 'decisions', 'events', 'gfx', 'history', 'interface',
+          'localisation', 'map', 'missions'
+        ),
+        optional(/[^\"\n]+/),
+        '"'
+      )), $.string
+    ),
+
+    _statement_mod_tags: $ => seq(
+      alias('tags', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._mod_tags_block
+      ))
+    ),
+
+    _mod_tags_block: $ => seq(
+      '{',
+      repeat($._mod_tags_keyword),
+      '}'
+    ),
+
+    _mod_tags_keyword: $ => alias(choice(
+      /"[Aa]lternative [Hh]istory"/, /"[Bb]alance"/, /"[Ee]vents"/,
+      /"[Ee]xpansion"/, /"[Ff]ixes"/, /"[Gg]ameplay"/, /"[Gg]raphics"/,
+      /"[Gg]uide"/, /"[Hh]istorical"/, /"[Ll]oading [Ss]creen"/, /"[Mm]ap"/,
+      /"[Mm]ilitary"/, /"[Mm]issions [Aa]nd [Dd]ecisions"/,
+      /"[Nn]ational [Ii]deas"/, /"[Nn]ew [Nn]ations"/, /"[Rr]eligion"/,
+      /"[Ss]ound"/, /"[Tt]echnologies"/, /"[Tt]rade"/, /"[Tt]ranslation"/,
+      /"[Uu]tilities"/, /"[Cc]onverted [Ff]rom CKII"/
+      ), $.tags_keyword
+    ),
+
+    _statement_mod_dependencies: $ => seq(
+      alias('dependencies', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._mod_dependencies_block
+      ))
+    ),
+
+    _mod_dependencies_block: $ => seq(
+      '{',
+      repeat(alias($.string, $.dependencies)),
+      '}'
+    ),
+
+    //-------------------------------------//
+    //  GFX statements [_statement_gfx_X]  //
+    //-------------------------------------//
+
+    _statement_gfx_name: $ => seq(
+      alias('name', $.name_identifier),
+      optional(seq(
+        $.assign_equal,
+        choice(
+          alias(token(seq('"', /[a-zA-Z0-9_:.'-]*/, '"')), $.name_value),
+          alias(token(seq('"GFX_', /[a-zA-Z0-9_:.'-]*/, '"')), $.name_gfx_value)
+        )
+      ))
+    ),
+
+    _statement_gfx_path: $ => seq(
+      alias('path', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string,
+      ))
+    ),
+
+    _statement_gfx_cursor_offset: $ => seq(
+      alias('cursor_offset', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $.integer,
+        $.integer,
+        '}'
+      ))
+    ),
+
+   _statement_gfx_textureFile: $ => seq(
+      alias(/texture[Ff]ile/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          choice('.dds', '.tga'),
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_textureFile1: $ => seq(
+       alias(/texture[Ff]ile1/, $.identifier),
+       optional(seq(
+         $.assign_equal,
+         alias(token(seq(
+           '"',
+           /[^\"\n]+/,
+           choice('.dds', '.tga'),
+           '"'
+         )), $.string)
+       ))
+     ),
+
+     _statement_gfx_textureFile2: $ => seq(
+        alias(/texture[Ff]ile2/, $.identifier),
+        optional(seq(
+          $.assign_equal,
+          alias(token(seq(
+            '"',
+            /[^\"\n]+/,
+            choice('.dds', '.tga'),
+            '"'
+          )), $.string)
+        ))
+      ),
+
+      _statement_gfx_textureFile3: $ => seq(
+        alias(/texture[Ff]ile3/, $.identifier),
+        optional(seq(
+          $.assign_equal,
+          alias(token(seq(
+            '"',
+            /[^\"\n]+/,
+            choice('.dds', '.tga'),
+            '"'
+          )), $.string)
+        )),
+        optional(';')
+      ),
+
+   _statement_gfx_noOfFrames: $ => seq(
+      alias('noOfFrames', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gfx_overlay_frames_per_row: $ => seq(
+       alias('overlay_frames_per_row', $.identifier),
+       optional(seq(
+         $.assign_equal,
+         $._integer_positive
+       ))
+     ),
+
+    _statement_gfx_overlay_rows: $ => seq(
+       alias('overlay_rows', $.identifier),
+       optional(seq(
+         $.assign_equal,
+         $._integer_positive
+       ))
+     ),
+
+    _statement_gfx_effectFile: $ => seq(
+       alias('effectFile', $.identifier),
+       optional(seq(
+         $.assign_equal,
+         alias(token(seq(
+           '"',
+           /[^\"\n]+/,
+           choice('.lua', '.shader'),
+           '"'
+         )), $.string)
+       ))
+     ),
+
+    _statement_gfx_animation: $ => seq(
+      alias('animation', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._gfx_animation_block
+      ))
+    ),
+
+    _gfx_animation_block: $ => seq(
+      '{',
+      repeat(choice(
+        $._animation_entry_dds,
+        $._animation_entry_angle,
+        $._animation_entry_bool,
+        $._animation_entry_time,
+        $._animation_entry_xy_float,
+        $._animation_entry_blendmode,
+        $._animation_entry_type,
+        $._animation_entry_frames,
+      )),
+      '}'
+    ),
+
+    _animation_entry_dds: $ => seq(
+      alias(choice(
+        'animationmaskfile',
+        'animationtexturefile'
+      ), $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.dds',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _animation_entry_angle: $ => seq(
+      alias('animationrotation', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.angle
+      ))
+    ),
+
+    _animation_entry_bool: $ => seq(
+      alias('animationlooping', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _animation_entry_time: $ => seq(
+      alias(choice(
+        'animationtime',
+        'animationdelay'
+      ), $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._float_positive
+      ))
+    ),
+
+    _animation_entry_xy_float: $ => seq(
+      alias(choice(
+        'animationrotationoffset',
+        'animationtexturescale'
+      ), $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_float,
+        '}'
+      ))
+    ),
+
+    _animation_entry_blendmode: $ => seq(
+      alias('animationblendmode', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice('"add"', '"multiply"', '"overlay"'), $.string)
+      ))
+    ),
+
+    _animation_entry_type: $ => seq(
+      alias('animationtype', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice('"scrolling"', '"rotating"', '"pulsing"'), $.string)
+      ))
+    ),
+
+    _animation_entry_frames: $ => seq(
+      alias('animationframes', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        repeat1($._integer_positive),
+        '}'
+      ))
+    ),
+
+    _statement_gfx_size_xy: $ => seq(
+      alias('size', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gfx_size_integer: $ => seq(
+      alias('size', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gfx_borderSize: $ => seq(
+      alias(/border[Ss]ize/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gfx_alwaystransparent: $ => seq(
+      alias(/all?ways[Tt]ransparent/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gfx_legacy_lazy_load: $ => seq(
+      alias('legacy_lazy_load', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gfx_clicksound: $ => seq(
+      alias('clicksound', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias($.identifier, $.keyword)
+      ))
+    ),
+
+    _statement_gfx_speed: $ => seq(
+      alias('speed', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._float_positive
+      ))
+    ),
+
+    _statement_gfx_textblock: $ => seq(
+      alias('textblock', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._gfx_textblock,
+      ))
+    ),
+
+    _gfx_textblock: $ => seq(
+      '{',
+      repeat(choice(
+        $._statement_gfx_text,
+        $._statement_gfx_color,
+        $._statement_gfx_font,
+        $._statement_gfx_position,
+        $._statement_gfx_size_xy,
+        $._statement_gfx_format,
+        $._statement_gfx_cull_distance,
+      )),
+      '}',
+    ),
+
+    _statement_gfx_text: $ => seq(
+      alias('text', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        choice(
+          $.string,
+          alias($.identifier, $.keyword)
+        )
+      ))
+    ),
+
+    _statement_gfx_color: $ => seq(
+      alias('color', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._float_positive,
+        $._float_positive,
+        $._float_positive,
+        '}'
+      ))
+    ),
+
+    _statement_gfx_colortwo: $ => seq(
+      alias('colortwo', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._float_positive,
+        $._float_positive,
+        $._float_positive,
+        '}'
+      ))
+    ),
+
+    _statement_gfx_font: $ => seq(
+      alias('font', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gfx_position: $ => seq(
+      alias('position', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gfx_format: $ => seq(
+      alias('format', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice(
+          'centre',
+          'center',
+          'left',
+          'right'
+        ), $.keyword)
+      ))
+    ),
+
+    _statement_gfx_cull_distance: $ => seq(
+      alias('cull_distance', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._float_positive,
+      ))
+    ),
+
+    _statement_gfx_textcolors: $ => seq(
+      alias(/[A-Za-z]/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $.byte,
+        $.byte,
+        $.byte,
+        '}'
+      ))
+    ),
+
+    _statement_gfx_bitmapfont_color: $ => seq(
+      alias('color', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.hexadecimal
+      ))
+    ),
+
+    _statement_gfx_bitmapfont_border_color: $ => seq(
+      alias('border_color', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.hexadecimal
+      ))
+    ),
+
+    _statement_gfx_animation_rate_fps: $ => seq(
+      alias('animation_rate_fps', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gfx_looping: $ => seq(
+      alias('looping', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gfx_play_on_show: $ => seq(
+      alias('play_on_show', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gfx_pause_on_loop: $ => seq(
+      alias('pause_on_loop', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._float_positive
+      ))
+    ),
+
+    _statement_gfx_horizontal: $ => seq(
+      alias('horizontal', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gfx_file: $ => seq(
+      alias('file', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.mesh',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_pdxmesh_animation: $ => seq(
+      alias('animation', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_gfx_animation_id,
+        $._statement_gfx_animation_type,
+        '}'
+      ))
+    ),
+
+    _statement_gfx_animation_id: $ => seq(
+      alias('id', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gfx_animation_type: $ => seq(
+      alias('type', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gfx_pdxmesh_meshsettings: $ => seq(
+      alias('meshsettings', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_gfx_name,
+        $._statement_gfx_meshsettings_index,
+        $._statement_gfx_meshsettings_texture_diffuse,
+        $._statement_gfx_meshsettings_texture_normal,
+        $._statement_gfx_meshsettings_texture_specular,
+        $._statement_gfx_meshsettings_shader,
+        $._statement_gfx_meshsettings_shader_file,
+        '}'
+      ))
+    ),
+
+    _statement_gfx_meshsettings_index: $ => seq(
+      alias('index', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gfx_meshsettings_texture_diffuse: $ => seq(
+      alias('texture_diffuse', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.dds',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_meshsettings_texture_normal: $ => seq(
+      alias('texture_normal', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.dds',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_meshsettings_texture_specular: $ => seq(
+      alias('texture_specular', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.dds',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_meshsettings_shader: $ => seq(
+      alias('shader', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          'PdxMeshStandard',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_meshsettings_shader_file: $ => seq(
+      alias('shader_file', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.shader',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+
+    _statement_gfx_scale: $ => seq(
+      alias('scale', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._float_positive
+      ))
+    ),
+
+    _statement_gfx_transparencecheck: $ => seq(
+      alias('transparencecheck', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gfx_loadType: $ => seq(
+      alias('loadType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice('"INGAME"', '"FRONTEND"'), $.string)
+      ))
+    ),
+
+    _statement_gfx_norefcount: $ => seq(
+      alias('norefcount', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gfx_texture: $ => seq(
+      alias('texture', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.dds',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_normal: $ => seq(
+      alias('normal', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.dds',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_specular: $ => seq(
+      alias('specular', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.dds',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_effect: $ => seq(
+      alias('effect', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.lua',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_effect_bool: $ => seq(
+      alias('effect', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gfx_alphamaskfile: $ => seq(
+      alias('alphamaskfile', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /[^\"\n]+/,
+          '.tga',
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gfx_linewidth: $ => seq(
+      alias('linewidth', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gfx_type: $ => seq(
+      alias('type', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+
+    //-------------------------------------//
+    //  GUI statements [_statement_gui_X]  //
+    //-------------------------------------//
+
+    _statement_gui_background: $ => seq(
+      alias(/back[Gg]round/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_position: $ => seq(
+      alias('position', $.identifier),
+      optional(seq(
+        optional($.assign_equal),
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_size: $ => seq(
+      alias('size', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_size_width_height: $ => seq(
+      alias('size', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_width_height_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_borderSize: $ => seq(
+      alias(/border[Ss]ize/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_moveable: $ => seq(
+      alias(/move?able/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        choice(
+          $._boolean_0_1,
+          $._boolean_yes_no
+        )
+      ))
+    ),
+
+    _statement_gui_orientation: $ => seq(
+      alias(/[Oo]rientation/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        choice(
+          $._orientation_value_string,
+          $._orientation_value_keyword
+        )
+      ))
+    ),
+
+    _statement_gui_priority: $ => seq(
+      alias('priority', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_scrollbartype: $ => seq(
+      alias('scrollbartype', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_alwaystransparent: $ => seq(
+      alias(/all?ways[Tt]ransparent/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_textureFile: $ => seq(
+      alias('textureFile', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          optional(seq(
+            /[^\"\n]+/,
+            choice('.dds', '.tga')
+          )),
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gui_font: $ => seq(
+      alias('font', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_cursor: $ => seq(
+      alias('cursor', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_text: $ => seq(
+      alias('text', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        choice(
+          $.string,
+          alias($.identifier, $.keyword)
+        )
+      ))
+    ),
+
+    _statement_gui_instantTextBoxType: $ => seq(
+      alias('instantTextBoxType', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_maxWidth: $ => seq(
+      alias(/max[Ww]idth/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_maxHeight: $ => seq(
+      alias(/max[Hh]eight/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_min_height: $ => seq(
+      alias('min_height', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_max_height: $ => seq(
+      alias('max_height', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_fixedsize: $ => seq(
+      alias('fixedsize', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_spriteType: $ => seq(
+      alias(/[Ss]priteType/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_format: $ => seq(
+      alias('format', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice(
+          'centre',
+          'center',
+          'left',
+          'right',
+          '"UPPER_LEFT"' //// TODO: Verify validity and extend
+        ), $.keyword)
+      ))
+    ),
+
+    _statement_gui_truncate: $ => seq(
+      alias('truncate', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_slider: $ => seq(
+      alias('slider', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_track: $ => seq(
+      alias('track', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_leftbutton: $ => seq(
+      alias('leftbutton', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_rightbutton: $ => seq(
+      alias('rightbutton', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_maxValue: $ => seq(
+      alias('maxValue', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.integer
+      ))
+    ),
+
+    _statement_gui_minValue: $ => seq(
+      alias('minValue', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.integer
+      ))
+    ),
+
+    _statement_gui_stepSize: $ => seq(
+      alias('stepSize', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._float_positive
+      ))
+    ),
+
+    _statement_gui_startValue: $ => seq(
+      alias('startValue', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.float
+      ))
+    ),
+
+    _statement_gui_horizontal: $ => seq(
+      alias('horizontal', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_horizontal_bool: $ => seq(
+      alias('horizontal', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_quadTextureSprite: $ => seq(
+      alias('quadTextureSprite', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_parent: $ => seq(
+      alias('parent', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_scroll_speed: $ => seq(
+      alias('scroll_speed', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._float_positive
+      ))
+    ),
+
+    _statement_gui_tooltip: $ => seq(
+      alias('tooltip', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_tooltipText: $ => seq(
+      alias('tooltipText', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_delayedTooltipText: $ => seq(
+      alias('delayedTooltipText', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_pdx_tooltip: $ => seq(
+      alias('pdx_tooltip', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_pdx_tooltip_delayed: $ => seq(
+      alias('pdx_tooltip_delayed', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_dontRender: $ => seq(
+      alias('dontRender', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_horizontalBorder: $ => seq(
+      alias('horizontalBorder', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_verticalBorder: $ => seq(
+      alias('verticalBorder', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_fullScreen: $ => seq(
+      alias(/full[Ss]creen/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_spacing: $ => seq(
+      alias('spacing', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.float
+      ))
+    ),
+
+    _statement_gui_buttonText: $ => seq(
+      alias('buttonText', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_buttonFont: $ => seq(
+      alias('buttonFont', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_shortcut: $ => seq(
+      alias(/short[Cc]ut/, $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_extra_shortcut: $ => seq(
+      alias('extra_shortcut', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_fixedsize: $ => seq(
+      alias('fixedsize', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_upsound: $ => seq(
+      alias('upsound', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        choice(
+          $.string,
+          alias($.identifier, $.keyword))
+      ))
+    ),
+
+    _statement_gui_downsound: $ => seq(
+      alias('downsound', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        choice(
+          $.string,
+          alias($.identifier, $.keyword))
+      ))
+    ),
+
+    _statement_gui_frame: $ => seq(
+      alias('frame', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_hint_tag: $ => seq(
+      alias('hint_tag', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_clicksound: $ => seq(
+      alias('clicksound', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        choice(
+          alias($.identifier, $.keyword),
+          $.string
+        )
+      ))
+    ),
+
+    _statement_gui_no_clicksound: $ => seq(
+      alias('no_clicksound', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_ignore_tab_navigation: $ => seq(
+      alias('ignore_tab_navigation', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_show_position: $ => seq(
+      alias('show_position', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_hide_position: $ => seq(
+      alias('hide_position', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_animation_type: $ => seq(
+      alias('animation_type', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(
+          choice(
+            '"decelerated"',
+            '"accelerated"',
+            '"linear"'
+        ), $.string)
+      ))
+    ),
+
+    _statement_gui_animation_time: $ => seq(
+      alias('animation_time', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_scale: $ => seq(
+      alias('scale', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._float_positive
+      ))
+    ),
+
+    _statement_gui_rotation: $ => seq(
+      alias('rotation', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.float
+      ))
+    ),
+
+    _statement_gui_offset: $ => seq(
+      alias('offset', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_xy_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_slotsize: $ => seq(
+      alias('slotsize', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_width_height_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_max_slots_horizontal: $ => seq(
+      alias('max_slots_horizontal', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_max_slots_vertical: $ => seq(
+      alias('max_slots_vertical', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_buttonMesh: $ => seq(
+      alias('buttonMesh', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_click_to_front: $ => seq(
+      alias('click_to_front', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_use_special_chars: $ => seq(
+      alias('use_special_chars', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._boolean_yes_no
+      ))
+    ),
+
+    _statement_gui_web_link: $ => seq(
+      alias('web_link', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(token(seq(
+          '"',
+          /https?:\/\//,
+          /[^\"\n]+/,
+          '"'
+        )), $.string)
+      ))
+    ),
+
+    _statement_gui_step: $ => seq(
+      alias('step', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive // Maybe boolean 1 0
+      ))
+    ),
+
+    _statement_gui_show_animation_type: $ => seq(
+      alias('show_animation_type', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice(
+          'decelerated',
+          'accelerated'
+        ), $.keyword)
+      ))
+    ),
+
+    _statement_gui_hide_animation_type: $ => seq(
+      alias('hide_animation_type', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice(
+          'decelerated',
+          'accelerated'
+        ), $.keyword)
+      ))
+    ),
+
+    _statement_gui_origo: $ => seq(
+      alias('origo', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice(
+          'center',
+          'left',
+          'right'
+        ), $.keyword)
+      ))
+    ),
+
+    _statement_gui_fade_time: $ => seq(
+      alias('fade_time', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $._integer_positive
+      ))
+    ),
+
+    _statement_gui_fade_type: $ => seq(
+      alias('fade_type', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice(
+          'linear'
+        ), $.keyword)
+      ))
+    ),
+
+    _statement_gui_margin: $ => seq(
+      alias('margin', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        $._statement_margin_integer,
+        '}'
+      ))
+    ),
+
+    _statement_gui_tileSize: $ => seq(
+      alias('tileSize', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        '{',
+        repeat1(choice(
+          $._entry_width_integer,
+          $._entry_height_integer
+        )),
+        '}'
+      ))
+    ),
+
+    _statement_gui_verticalScrollbar: $ => seq(
+      alias('verticalScrollbar', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        $.string
+      ))
+    ),
+
+    _statement_gui_text_color_code: $ => seq(
+      alias('text_color_code', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(/"[A-Za-z]"/, $.string)
+      ))
+    ),
+
+    _statement_gui_scrollbar_side: $ => seq(
+      alias('scrollbar_side', $.identifier),
+      optional(seq(
+        $.assign_equal,
+        alias(choice(
+          'LEFT',
+          'RIGHT'
+        ), $.keyword)
+      ))
+    ),
+
+
+    //==============================//
+    //            TOKENS            //
+    //==============================//
+
+    identifier: $ => /[a-zA-Z0-9_]+/,
+
+    assign_equal: $ => '=',
+
+    assign_colon: $ => token.immediate(':'),
+
+    string: $ => /"[^\"\n]*"/,
+
+    number: $ => token(seq(
+      optional('-'),
+      /\d+/,
+      optional(/\.\d+/),
+      optional('f')
+    )),
+
+    float: $ => token(seq(
+      optional('-'),
+      /\d+/,
+      optional(seq(
+        '.',
+        /\d+/
+      )),
+      optional('f')
+    )),
+
+    _float_positive: $ => alias(token(seq(
+      /\d+/,
+      optional(seq(
+        '.',
+        /\d+/
+      )),
+      optional('f')
+    )), $.float),
+
+    integer: $ => token(seq(
+      optional('-'),
+      /\d+/
+    )),
+
+    _integer_positive: $ => alias(/\d+/, $.integer),
+
+    byte: $ => /[0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]/,
+
+    hexadecimal: $ => token(seq(
+      '0x',
+      choice(
+        /[0-9a-f]{4}/,
+        /[0-9a-f]{8}/
+      )
+    )),
+
+    angle: $ => /36[0]\.0|3[0-5][0-9]\.[0-9]|[12][0-9][0-9]\.[0-9]|[1-9]?[0-9]\.[0-9]/,
+
+    boolean: $ => choice('true', 'false'),
+
+    _boolean_yes_no: $ => alias(choice('yes', 'no'), $.boolean),
+
+    _boolean_0_1: $ => alias(choice('0', '1'), $.boolean),
+
+    comment: $ => token(prec(-1, /#[^\n]*/)),
+
+    _orientation_value_string: $ => alias(token(
+      seq(
+        '"',
+        choice(
+          'LEFT', 'left',
+          'RIGHT', 'right',
+          'CENTER', 'center',
+          'CENTER_UP', 'center_up',
+          'CENTER_DOWN', 'center_down',
+          'CENTER_LEFT', 'center_left',
+          'CENTER_RIGHT', 'center_right',
+          'UPPER_LEFT', 'upper_left',
+          'UPPER_RIGHT', 'upper_right',
+          'LOWER_LEFT', 'lower_left',
+          'LOWER_RIGHT', 'lower_right', //// TODO: Complete
+        ),
+        '"'
+      ),
+    ), $.string),
+
+    _orientation_value_keyword: $ => alias(token(
+      choice(
+        'LEFT', 'left',
+        'RIGHT', 'right',
+        'CENTER', 'center',
+        'CENTER_UP', 'center_up',
+        'CENTER_DOWN', 'center_down',
+        'CENTER_LEFT', 'center_left',
+        'CENTER_RIGHT', 'center_right',
+        'UPPER_LEFT', 'upper_left',
+        'UPPER_RIGHT', 'upper_right',
+        'LOWER_LEFT', 'lower_left',
+        'LOWER_RIGHT', 'lower_right', //// TODO: Complete
+      )
+    ), $.keyword),
+
+    _eol: $ => token(/\r?\n/),
+
+    debug: $ => /.+/
+
+  }
 });
