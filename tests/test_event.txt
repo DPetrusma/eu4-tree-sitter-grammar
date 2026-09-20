@@ -1,0 +1,32 @@
+namespace = test
+
+country_event = {
+  id = test.1
+  title = "test_title"
+  desc = "test_desc"
+  picture = GFX_evt_war
+
+  trigger = {
+    has_idea_group = offensive_ideas
+    OR = {
+      religion = catholic
+      religion = protestant
+    }
+  }
+
+  mean_time_to_happen = {
+    months = 12
+  }
+
+  immediate = {
+    add_stability = 1
+    ROOT = {
+      add_manpower = 500
+    }
+  }
+
+  option = {
+    name = "option_1"
+    add_prestige = 2
+  }
+}
