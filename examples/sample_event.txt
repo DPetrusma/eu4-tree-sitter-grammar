@@ -1,0 +1,38 @@
+# Sample EU4 event used to eyeball the highlighting
+namespace = my_mod
+
+country_event = {
+	id = my_mod.1
+	title = "my_mod.1.t"
+	desc = "my_mod.1.d"
+	picture = ADM_eventPicture
+	fire_only_once = yes
+
+	trigger = {
+		tag = FRA
+		is_year = 1444
+		NOT = { has_country_flag = my_flag }
+		any_owned_province = {
+			development > 20
+			owner = { prestige >= 50 }
+		}
+		ROOT.owner = { adm_power = 100 }
+	}
+
+	mean_time_to_happen = {
+		months = 12
+		modifier = { factor = 0.5 has_dlc = "Art of War" }
+	}
+
+	option = {
+		name = "my_mod.1.a"
+		add_prestige = 10
+		add_stability = 1
+		1444.11.11 = { add_country_modifier = { name = $MODIFIER$ duration = -1 } }
+		event_target:my_target = { add_adm_power = @my_const }
+		if = {
+			limit = { has_country_flag = my_flag }
+			add_legitimacy = 10
+		}
+	}
+}
